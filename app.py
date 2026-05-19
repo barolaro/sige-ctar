@@ -33,6 +33,158 @@ st.set_page_config(
 APP_NAME = "SIGE-CTAR"
 DEFAULT_EXCEL = "data/CTAR_RelationalModel.xlsx"
 
+
+# =========================================================
+# AUTENTICACIÓN SIMPLE POR USUARIO / CLAVE
+# =========================================================
+
+import hashlib
+import hmac
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+def get_users_config():
+    try:
+        return dict(st.secrets["auth"]["users"])
+    except Exception:
+        # Usuarios demo. Cambiar obligatoriamente antes de usar con Hospital.
+        return {
+            "admin": {
+                "name": "Administrador CTAR",
+                "password_hash": hash_password("admin123"),
+                "role": "admin",
+            },
+            "ctar": {
+                "name": "Usuario CTAR",
+                "password_hash": hash_password("ctar123"),
+                "role": "ctar",
+            },
+            "hospital": {
+                "name": "Usuario Hospital",
+                "password_hash": hash_password("hospital123"),
+                "role": "hospital",
+            },
+            "ifiscal": {
+                "name": "Inspector Fiscal",
+                "password_hash": hash_password("if123"),
+                "role": "if",
+            },
+        }
+
+def authenticate(username: str, password: str):
+    users = get_users_config()
+    if username not in users:
+        return None
+
+    user = users[username]
+    expected_hash = str(user.get("password_hash", ""))
+    provided_hash = hash_password(password)
+
+    if hmac.compare_digest(expected_hash, provided_hash):
+        return {
+            "username": username,
+            "name": user.get("name", username),
+            "role": user.get("role", "viewer"),
+        }
+    return None
+
+def login_screen():
+    st.markdown(
+        """
+        <style>
+        .login-box {
+            max-width: 460px;
+            margin: 8vh auto 0 auto;
+            background: white;
+            padding: 34px;
+            border-radius: 18px;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 12px 34px rgba(15, 23, 42, .12);
+        }
+        .login-title {
+            font-size: 28px;
+            font-weight: 800;
+            color: #1a2b4a;
+            margin-bottom: 4px;
+        }
+        .login-subtitle {
+            color: #64748b;
+            font-size: 14px;
+            margin-bottom: 22px;
+        }
+        </style>
+        <div class="login-box">
+            <div class="login-title">🏥 SIGE-CTAR</div>
+            <div class="login-subtitle">Sistema de Gestión y Trazabilidad CTAR</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.form("login_form"):
+        username = st.text_input("Usuario")
+        password = st.text_input("Clave", type="password")
+        submit = st.form_submit_button("Ingresar")
+
+    if submit:
+        user = authenticate(username.strip(), password)
+        if user:
+            st.session_state["authenticated"] = True
+            st.session_state["user"] = user
+            st.rerun()
+        else:
+            st.error("Usuario o clave incorrecta.")
+
+def require_login():
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+    if not st.session_state["authenticated"]:
+        login_screen()
+        st.stop()
+
+def logout_button():
+    user = st.session_state.get("user", {})
+    st.sidebar.markdown("---")
+    st.sidebar.caption(f"Usuario: {user.get('name','')}")
+    st.sidebar.caption(f"Rol: {user.get('role','')}")
+    if st.sidebar.button("Cerrar sesión"):
+        st.session_state.clear()
+        st.rerun()
+
+def user_role():
+    return st.session_state.get("user", {}).get("role", "viewer")
+
+def can_edit():
+    return user_role() in ["admin", "ctar", "if"]
+
+def can_config():
+    return user_role() == "admin"
+
+def filter_pages_by_role(pages):
+    role = user_role()
+    if role == "hospital":
+        return [
+            "Resumen Ejecutivo",
+            "Seguimiento",
+            "Bajas",
+            "Reposiciones",
+            "Adquisiciones",
+            "Alertas",
+        ]
+    if role in ["if", "ctar"]:
+        return [
+            "Resumen Ejecutivo",
+            "Seguimiento",
+            "Bajas",
+            "Reposiciones",
+            "Adquisiciones",
+            "Alertas",
+            "Registro",
+        ]
+    return pages
+
+
 REQUIRED_TABLES = [
     "FACT_CTAR_SEGUIMIENTO",
     "DIM_EQUIPO",
@@ -360,6 +512,12 @@ def build_model(tables: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
 
 
 # =========================================================
+# Login requerido
+# =========================================================
+
+require_login()
+
+# =========================================================
 # Sidebar
 # =========================================================
 
@@ -368,19 +526,18 @@ with st.sidebar:
     st.caption("Sistema de Gestión y Trazabilidad CTAR")
     st.markdown("---")
 
-    page = st.radio(
-        "Menú",
-        [
-            "Resumen Ejecutivo",
-            "Seguimiento",
-            "Bajas",
-            "Reposiciones",
-            "Adquisiciones",
-            "Alertas",
-            "Registro",
-            "Configuración",
-        ],
-    )
+    available_pages = filter_pages_by_role([
+        "Resumen Ejecutivo",
+        "Seguimiento",
+        "Bajas",
+        "Reposiciones",
+        "Adquisiciones",
+        "Alertas",
+        "Registro",
+        "Configuración",
+    ])
+
+    page = st.radio("Menú", available_pages)
 
     st.markdown("---")
     data_source = st.selectbox(
@@ -405,6 +562,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption("Versión piloto robusto · CTAR")
+    logout_button()
 
 
 # =========================================================
@@ -708,6 +866,9 @@ elif page == "Alertas":
 
 
 elif page == "Registro":
+    if not can_edit():
+        st.error("No tiene permisos para registrar o modificar solicitudes.")
+        st.stop()
     header("Registro de Solicitudes", "Formulario simple para ingresar nuevas solicitudes CTAR.")
 
     st.info("En modo Google Sheets, este formulario puede agregar una fila a FACT_CTAR_SEGUIMIENTO. En modo Excel, genera una fila descargable.")
@@ -780,6 +941,9 @@ elif page == "Registro":
 
 
 elif page == "Configuración":
+    if not can_config():
+        st.error("Solo el administrador puede acceder a configuración.")
+        st.stop()
     header("Configuración del Sistema", "Validación del modelo, estructura de Google Sheets y guía de uso.")
 
     st.markdown("### Estado del modelo de datos")
