@@ -382,18 +382,24 @@ with st.sidebar:
     st.caption(f"Usuario: {user['name']}")
     st.caption(f"Rol: {user['role']}")
 
+    # MENÚ BASE
     pages = [
         "Resumen Ejecutivo",
         "Seguimiento",
         "Bajas",
         "Reposiciones",
         "Adquisiciones",
-        "Alertas",
     ]
 
+    # ALERTAS SOLO PARA ADMIN / CTAR / IF
+    if role() != "hospital":
+        pages.append("Alertas")
+
+    # REGISTRO SOLO PARA USUARIOS CON EDICIÓN
     if can_edit():
         pages.append("Registro")
 
+    # CONFIGURACIÓN SOLO ADMIN
     if role() == "admin":
         pages.append("Configuración")
 
@@ -402,7 +408,6 @@ with st.sidebar:
     if st.button("Cerrar sesión"):
         st.session_state.clear()
         st.rerun()
-
 
 # =========================
 # PÁGINAS
