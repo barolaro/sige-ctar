@@ -132,13 +132,45 @@ def authenticate(username, password):
 
 
 def login():
-    st.markdown("## 🏥 SIGE-CTAR")
-    st.caption("Sistema de Gestión y Trazabilidad CTAR")
+    st.markdown(
+        """
+        <style>
+        .login-title {
+            text-align: center;
+            font-size: 42px;
+            font-weight: 800;
+            color: #1f2937;
+            margin-bottom: 0px;
+        }
+        .login-subtitle {
+            text-align: center;
+            color: #6b7280;
+            font-size: 18px;
+            margin-bottom: 25px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with st.form("login"):
-        username = st.text_input("Usuario")
-        password = st.text_input("Clave", type="password")
-        submit = st.form_submit_button("Ingresar")
+    col1, col2, col3 = st.columns([1.2, 1, 1.2])
+
+    with col2:
+        st.markdown(
+            """
+            <div class="login-title">🏥 SIGE-CTAR</div>
+            <div class="login-subtitle">Sistema de Gestión y Trazabilidad CTAR</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        with st.form("login"):
+            username = st.text_input("Usuario")
+            password = st.text_input("Clave", type="password")
+            submit = st.form_submit_button(
+                "Ingresar",
+                use_container_width=True
+            )
 
     if submit:
         user = authenticate(username.strip(), password)
@@ -160,7 +192,6 @@ def role():
 
 def can_edit():
     return role() in ["admin", "ctar", "if"]
-
 
 # =========================
 # GOOGLE SHEETS
