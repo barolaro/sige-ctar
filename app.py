@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 from datetime import date
+from io import BytesIO
 
 import gspread
 import pandas as pd
@@ -8,6 +9,7 @@ import plotly.express as px
 import streamlit as st
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 
 st.set_page_config(
@@ -36,7 +38,9 @@ REQUIRED_SHEETS = [
 ]
 
 DRIVE_FOLDER_ID = "1wS6MoYjcfZGbZRtbEjPQPQTC0g_A4IGQ"
-RESERVA_SPREADSHEET_ID = "1YU-dxAJlkUW7BLl2DWxssHb1Fo9dmH3m"
+
+# ID DEL ARCHIVO XLSX DE RESERVA PRESUPUESTARIA
+RESERVA_FILE_ID = "1YU-dxAJlkUW7BLl2DWxssHb1Fo9dmH3m"
 RESERVA_WORKSHEET_NAME = "Anexo I f)"
 
 
@@ -313,14 +317,35 @@ def list_drive_files(folder_id):
 @st.cache_data(ttl=60)
 def load_reserva_presupuestaria():
     creds = get_credentials()
-    client = gspread.authorize(creds)
 
-    spreadsheet = client.open_by_key(RESERVA_SPREADSHEET_ID)
-    worksheet = spreadsheet.worksheet(RESERVA_WORKSHEET_NAME)
+    service = build(
+        "drive",
+        "v3",
+        credentials=creds,
+    )
 
-    data = worksheet.get_all_values()
+    request = service.files().get_media(
+        fileId=RESERVA_FILE_ID,
+        supportsAllDrives=True,
+    )
 
-    return data
+    file_buffer = BytesIO()
+    downloader = MediaIoBaseDownload(file_buffer, request)
+
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+
+    file_buffer.seek(0)
+
+    df = pd.read_excel(
+        file_buffer,
+        sheet_name=RESERVA_WORKSHEET_NAME,
+        header=None,
+        engine="openpyxl",
+    )
+
+    return df
 
 
 def check_sheets(tables):
@@ -782,13 +807,11 @@ elif page == "Reserva Presupuestaria":
     )
 
     try:
-        data = load_reserva_presupuestaria()
+        df_raw = load_reserva_presupuestaria()
 
-        if not data:
+        if df_raw.empty:
             st.info("No se encontraron datos en la hoja Anexo I f).")
             st.stop()
-
-        df_raw = pd.DataFrame(data)
 
         st.markdown("### 📊 Vista original del Anexo I f)")
         st.dataframe(df_raw, use_container_width=True, hide_index=True)
@@ -877,7 +900,7 @@ elif page == "Reserva Presupuestaria":
     except Exception as e:
         st.error("No se pudo cargar la Reserva Presupuestaria.")
         st.warning(
-            "Verifica que la cuenta de servicio tenga permiso de lector en el archivo de Google Sheets."
+            "Verifica que la Google Drive API esté habilitada, que el archivo sea .xlsx y que la cuenta de servicio tenga permiso de lector."
         )
         st.code(str(e))
 
