@@ -857,7 +857,7 @@ elif page == "Repositorio Documental":
 elif page == "Reserva Presupuestaria":
     header(
         "Reserva Presupuestaria",
-        "Análisis ejecutivo del Anexo I f) · Fondo de reserva y gastos durante la explotación.",
+        "Dashboard ejecutivo del Anexo I f) · Fondo de reserva y gastos durante la explotación.",
     )
 
     try:
@@ -910,41 +910,64 @@ elif page == "Reserva Presupuestaria":
         total_revision = fila_total["En revisión desembolsos"].sum()
         diferencia = fila_total["Diferencia proyectada"].sum()
 
-        st.markdown("## 📌 Resumen ejecutivo")
+        porcentaje_usado = 0
+        if total_vma > 0:
+            porcentaje_usado = ((total_desembolsos + total_revision) / total_vma) * 100
 
-        diferencia_class = "kpi-negative" if diferencia < 0 else "kpi-positive"
+        saldo_disponible = total_vma - total_desembolsos - total_revision
 
-        st.markdown(
-            f"""
-            <div class="kpi-grid">
-                <div class="kpi-card">
-                    <div class="kpi-title">Total proyectado<br>UF</div>
-                    <div class="kpi-value">{total_general:,.2f}</div>
-                </div>
+        st.markdown("## 📌 Resumen ejecutivo financiero")
 
-                <div class="kpi-card">
-                    <div class="kpi-title">VMA explotación<br>UF</div>
-                    <div class="kpi-value">{total_vma:,.2f}</div>
-                </div>
+        c1, c2, c3 = st.columns(3)
 
-                <div class="kpi-card">
-                    <div class="kpi-title">Desembolsado<br>UF</div>
-                    <div class="kpi-value">{total_desembolsos:,.2f}</div>
-                </div>
+        with c1:
+            st.metric(
+                "Fondo VMA explotación",
+                f"{total_vma:,.2f} UF"
+            )
 
-                <div class="kpi-card">
-                    <div class="kpi-title">En revisión<br>UF</div>
-                    <div class="kpi-value">{total_revision:,.2f}</div>
-                </div>
+        with c2:
+            st.metric(
+                "Total desembolsado",
+                f"{total_desembolsos:,.2f} UF"
+            )
 
-                <div class="kpi-card">
-                    <div class="kpi-title">Diferencia<br>UF</div>
-                    <div class="kpi-value {diferencia_class}">{diferencia:,.2f}</div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with c3:
+            st.metric(
+                "Saldo disponible estimado",
+                f"{saldo_disponible:,.2f} UF"
+            )
+
+        c4, c5, c6 = st.columns(3)
+
+        with c4:
+            st.metric(
+                "En revisión",
+                f"{total_revision:,.2f} UF"
+            )
+
+        with c5:
+            st.metric(
+                "Diferencia proyectada",
+                f"{diferencia:,.2f} UF"
+            )
+
+        with c6:
+            st.metric(
+                "Uso estimado del fondo",
+                f"{porcentaje_usado:,.1f}%"
+            )
+
+        st.progress(min(max(porcentaje_usado / 100, 0), 1))
+
+        if diferencia < 0:
+            st.error(
+                "El análisis muestra una diferencia proyectada negativa, por lo que corresponde mantener seguimiento y control financiero del fondo de reserva."
+            )
+        else:
+            st.success(
+                "El análisis muestra una diferencia proyectada positiva o controlada respecto del fondo de reserva."
+            )
 
         st.markdown("---")
 
@@ -960,7 +983,7 @@ elif page == "Reserva Presupuestaria":
 
         st.markdown("---")
 
-        st.markdown("## 📈 Comparativo financiero por año")
+        st.markdown("## 📊 Comparativo financiero por año")
 
         grafico_base = tabla_anios.melt(
             id_vars="Año",
@@ -980,7 +1003,7 @@ elif page == "Reserva Presupuestaria":
             color="Concepto",
             barmode="group",
             text_auto=",.0f",
-            title="Comparación entre VMA, desembolsos y montos en revisión",
+            title="VMA, desembolsos y montos en revisión por año de explotación",
         )
 
         fig.update_layout(
@@ -1019,6 +1042,18 @@ elif page == "Reserva Presupuestaria":
         st.plotly_chart(fig2, use_container_width=True)
 
         st.markdown("---")
+
+        st.markdown("## 🧾 Lectura ejecutiva")
+
+        st.info(
+            f"""
+            De acuerdo con el Anexo I f), el VMA total del año de explotación asciende a **{total_vma:,.2f} UF**. 
+            A la fecha, se registran desembolsos por **{total_desembolsos:,.2f} UF** y montos en revisión por 
+            **{total_revision:,.2f} UF**, lo que representa un uso estimado del fondo de **{porcentaje_usado:,.1f}%**.
+
+            La diferencia proyectada consolidada corresponde a **{diferencia:,.2f} UF**.
+            """
+        )
 
         with st.expander("📄 Ver planilla original completa"):
             st.dataframe(
