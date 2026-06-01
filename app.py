@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
 
 
 st.set_page_config(
@@ -15,10 +16,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-# =========================
-# CONFIGURACIÓN
-# =========================
 
 REQUIRED_SHEETS = [
     "FACT_CTAR_SEGUIMIENTO",
@@ -34,10 +31,6 @@ REQUIRED_SHEETS = [
     "FACT_ALERTAS",
 ]
 
-
-# =========================
-# ESTILO
-# =========================
 
 st.markdown(
     """
@@ -59,6 +52,7 @@ st.markdown(
         border-radius: 14px;
         padding: 16px;
         box-shadow: 0 4px 12px rgba(15,23,42,.06);
+        margin-bottom: 10px;
     }
     .metric-title {
         font-size: 12px;
@@ -70,6 +64,31 @@ st.markdown(
         font-size: 30px;
         font-weight: 800;
         color: #1f2937;
+    }
+    .doc-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        padding: 15px;
+        margin-bottom: 12px;
+        box-shadow: 0 4px 12px rgba(15,23,42,.06);
+    }
+    .doc-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: #1f2937;
+    }
+    .doc-meta {
+        font-size: 12px;
+        color: #64748b;
+        margin-top: 4px;
+    }
+    .doc-link {
+        display: inline-block;
+        margin-top: 8px;
+        color: #2563eb;
+        font-weight: 700;
+        text-decoration: none;
     }
     </style>
     """,
@@ -119,10 +138,7 @@ def authenticate(username, password):
         return None
 
     user = users[username]
-    if hmac.compare_digest(
-        user["password_hash"],
-        hash_password(password),
-    ):
+    if hmac.compare_digest(user["password_hash"], hash_password(password)):
         return {
             "username": username,
             "name": user["name"],
@@ -167,10 +183,7 @@ def login():
         with st.form("login"):
             username = st.text_input("Usuario")
             password = st.text_input("Clave", type="password")
-            submit = st.form_submit_button(
-                "Ingresar",
-                use_container_width=True
-            )
+            submit = st.form_submit_button("Ingresar", use_container_width=True)
 
     if submit:
         user = authenticate(username.strip(), password)
@@ -193,12 +206,12 @@ def role():
 def can_edit():
     return role() in ["admin", "ctar", "if"]
 
+
 # =========================
-# GOOGLE SHEETS
+# GOOGLE SHEETS / DRIVE
 # =========================
 
-@st.cache_data(ttl=60)
-def load_google_sheets():
+def get_credentials():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
@@ -209,7 +222,14 @@ def load_google_sheets():
         scopes=scopes,
     )
 
+    return creds
+
+
+@st.cache_data(ttl=60)
+def load_google_sheets():
+    creds = get_credentials()
     client = gspread.authorize(creds)
+
     spreadsheet_id = st.secrets["google_sheet"]["spreadsheet_id"]
     spreadsheet = client.open_by_key(spreadsheet_id)
 
@@ -225,22 +245,37 @@ def load_google_sheets():
 
 
 def append_to_sheet(sheet_name, row_values):
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=scopes,
-    )
-
+    creds = get_credentials()
     client = gspread.authorize(creds)
+
     spreadsheet_id = st.secrets["google_sheet"]["spreadsheet_id"]
     spreadsheet = client.open_by_key(spreadsheet_id)
     worksheet = spreadsheet.worksheet(sheet_name)
     worksheet.append_row(row_values, value_input_option="USER_ENTERED")
+
     st.cache_data.clear()
+
+
+@st.cache_data(ttl=60)
+def list_drive_files(folder_id):
+    creds = get_credentials()
+
+    service = build(
+        "drive",
+        "v3",
+        credentials=creds,
+    )
+
+    results = service.files().list(
+        q=f"'{folder_id}' in parents and trashed = false",
+        fields="files(id, name, mimeType, webViewLink, modifiedTime)",
+        orderBy="modifiedTime desc",
+        pageSize=100,
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    ).execute()
+
+    return results.get("files", [])
 
 
 def check_sheets(tables):
@@ -380,6 +415,23 @@ def filters(df):
     return out
 
 
+def icon_by_mimetype(mime_type):
+    mime_type = str(mime_type).lower()
+
+    if "pdf" in mime_type:
+        return "📕"
+    if "spreadsheet" in mime_type or "excel" in mime_type:
+        return "📊"
+    if "document" in mime_type or "word" in mime_type:
+        return "📄"
+    if "presentation" in mime_type or "powerpoint" in mime_type:
+        return "📽️"
+    if "folder" in mime_type:
+        return "📁"
+
+    return "📎"
+
+
 # =========================
 # CARGA
 # =========================
@@ -413,24 +465,21 @@ with st.sidebar:
     st.caption(f"Usuario: {user['name']}")
     st.caption(f"Rol: {user['role']}")
 
-    # MENÚ BASE
     pages = [
         "Resumen Ejecutivo",
         "Seguimiento",
         "Bajas",
         "Reposiciones",
         "Adquisiciones",
+        "Repositorio Documental",
     ]
 
-    # ALERTAS SOLO PARA ADMIN / CTAR / IF
     if role() != "hospital":
         pages.append("Alertas")
 
-    # REGISTRO SOLO PARA USUARIOS CON EDICIÓN
     if can_edit():
         pages.append("Registro")
 
-    # CONFIGURACIÓN SOLO ADMIN
     if role() == "admin":
         pages.append("Configuración")
 
@@ -439,6 +488,7 @@ with st.sidebar:
     if st.button("Cerrar sesión"):
         st.session_state.clear()
         st.rerun()
+
 
 # =========================
 # PÁGINAS
@@ -602,6 +652,60 @@ elif page == "Adquisiciones":
         view = view.merge(adq, on="ID_CTAR", how="left")
 
     st.dataframe(view, use_container_width=True, hide_index=True)
+
+
+elif page == "Repositorio Documental":
+    header(
+        "Repositorio Documental CTAR",
+        "Consulta de documentos almacenados en Google Drive.",
+    )
+
+    folder_id = "1wS6MoYjcfZGbZRtbEjPQPQTC0g_A4IGQ"
+
+    st.markdown("### 📂 Documentos disponibles")
+
+    try:
+        files = list_drive_files(folder_id)
+
+        if not files:
+            st.info("No se encontraron documentos en la carpeta de Google Drive.")
+        else:
+            st.success(f"Se encontraron {len(files)} documentos en el repositorio.")
+
+            search_doc = st.text_input("Buscar documento por nombre")
+
+            if search_doc:
+                files = [
+                    f for f in files
+                    if search_doc.lower() in f.get("name", "").lower()
+                ]
+
+            if not files:
+                st.warning("No se encontraron documentos con ese criterio de búsqueda.")
+
+            for f in files:
+                icon = icon_by_mimetype(f.get("mimeType", ""))
+                name = f.get("name", "Sin nombre")
+                link = f.get("webViewLink", "#")
+                modified = f.get("modifiedTime", "")
+
+                st.markdown(
+                    f"""
+                    <div class="doc-card">
+                        <div class="doc-title">{icon} {name}</div>
+                        <div class="doc-meta">Última modificación: {modified}</div>
+                        <a class="doc-link" href="{link}" target="_blank">Abrir documento</a>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+    except Exception as e:
+        st.error("No se pudo acceder a la carpeta de Google Drive.")
+        st.warning(
+            "Verifica que la cuenta de servicio tenga permiso de lector en la carpeta."
+        )
+        st.code(str(e))
 
 
 elif page == "Alertas":
