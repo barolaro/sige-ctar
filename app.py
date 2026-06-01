@@ -17,6 +17,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# =========================
+# CONFIGURACIÓN
+# =========================
+
 REQUIRED_SHEETS = [
     "FACT_CTAR_SEGUIMIENTO",
     "DIM_EQUIPO",
@@ -31,12 +35,21 @@ REQUIRED_SHEETS = [
     "FACT_ALERTAS",
 ]
 
+DRIVE_FOLDER_ID = "1wS6MoYjcfZGbZRtbEjPQPQTC0g_A4IGQ"
+RESERVA_SPREADSHEET_ID = "1YU-dxAJlkUW7BLl2DWxssHb1Fo9dmH3m"
+RESERVA_WORKSHEET_NAME = "Anexo I f)"
+
+
+# =========================
+# ESTILO
+# =========================
 
 st.markdown(
     """
     <style>
     .main { background: #f4f6fb; }
     .block-container { padding-top: 1rem; }
+
     .header {
         background: linear-gradient(90deg, #1a2b4a, #2563eb);
         color: white;
@@ -44,8 +57,10 @@ st.markdown(
         border-radius: 16px;
         margin-bottom: 18px;
     }
+
     .header h1 { color: white; margin: 0; }
     .header p { color: #dbeafe; margin: 4px 0 0 0; }
+
     .metric-card {
         background: white;
         border: 1px solid #e5e7eb;
@@ -54,17 +69,20 @@ st.markdown(
         box-shadow: 0 4px 12px rgba(15,23,42,.06);
         margin-bottom: 10px;
     }
+
     .metric-title {
         font-size: 12px;
         color: #64748b;
         text-transform: uppercase;
         font-weight: 700;
     }
+
     .metric-value {
         font-size: 30px;
         font-weight: 800;
         color: #1f2937;
     }
+
     .doc-card {
         background: white;
         border: 1px solid #e5e7eb;
@@ -73,16 +91,19 @@ st.markdown(
         margin-bottom: 12px;
         box-shadow: 0 4px 12px rgba(15,23,42,.06);
     }
+
     .doc-title {
         font-size: 16px;
         font-weight: 700;
         color: #1f2937;
     }
+
     .doc-meta {
         font-size: 12px;
         color: #64748b;
         margin-top: 4px;
     }
+
     .doc-link {
         display: inline-block;
         margin-top: 8px;
@@ -134,16 +155,22 @@ def get_users():
 
 def authenticate(username, password):
     users = get_users()
+
     if username not in users:
         return None
 
     user = users[username]
-    if hmac.compare_digest(user["password_hash"], hash_password(password)):
+
+    if hmac.compare_digest(
+        user["password_hash"],
+        hash_password(password),
+    ):
         return {
             "username": username,
             "name": user["name"],
             "role": user["role"],
         }
+
     return None
 
 
@@ -158,6 +185,7 @@ def login():
             color: #1f2937;
             margin-bottom: 0px;
         }
+
         .login-subtitle {
             text-align: center;
             color: #6b7280;
@@ -183,10 +211,14 @@ def login():
         with st.form("login"):
             username = st.text_input("Usuario")
             password = st.text_input("Clave", type="password")
-            submit = st.form_submit_button("Ingresar", use_container_width=True)
+            submit = st.form_submit_button(
+                "Ingresar",
+                use_container_width=True,
+            )
 
     if submit:
         user = authenticate(username.strip(), password)
+
         if user:
             st.session_state["user"] = user
             st.rerun()
@@ -278,6 +310,19 @@ def list_drive_files(folder_id):
     return results.get("files", [])
 
 
+@st.cache_data(ttl=60)
+def load_reserva_presupuestaria():
+    creds = get_credentials()
+    client = gspread.authorize(creds)
+
+    spreadsheet = client.open_by_key(RESERVA_SPREADSHEET_ID)
+    worksheet = spreadsheet.worksheet(RESERVA_WORKSHEET_NAME)
+
+    data = worksheet.get_all_values()
+
+    return data
+
+
 def check_sheets(tables):
     missing = [s for s in REQUIRED_SHEETS if s not in tables]
     return missing
@@ -310,6 +355,7 @@ def build_model(tables):
 
     for sheet, key in joins:
         dim = tables.get(sheet, pd.DataFrame()).copy()
+
         if not dim.empty and key in df.columns and key in dim.columns:
             df = df.merge(dim, on=key, how="left")
 
@@ -420,16 +466,28 @@ def icon_by_mimetype(mime_type):
 
     if "pdf" in mime_type:
         return "📕"
+
     if "spreadsheet" in mime_type or "excel" in mime_type:
         return "📊"
+
     if "document" in mime_type or "word" in mime_type:
         return "📄"
+
     if "presentation" in mime_type or "powerpoint" in mime_type:
         return "📽️"
+
     if "folder" in mime_type:
         return "📁"
 
     return "📎"
+
+
+def clean_number(value):
+    value = str(value).strip()
+    value = value.replace(",", "")
+    value = value.replace(" ", "")
+
+    return pd.to_numeric(value, errors="coerce")
 
 
 # =========================
@@ -461,6 +519,7 @@ with st.sidebar:
     st.caption("Sistema CTAR")
 
     user = st.session_state["user"]
+
     st.markdown("---")
     st.caption(f"Usuario: {user['name']}")
     st.caption(f"Rol: {user['role']}")
@@ -472,6 +531,7 @@ with st.sidebar:
         "Reposiciones",
         "Adquisiciones",
         "Repositorio Documental",
+        "Reserva Presupuestaria",
     ]
 
     if role() != "hospital":
@@ -620,7 +680,10 @@ elif page == "Seguimiento":
 
 
 elif page == "Bajas":
-    header("Bajas y Extravíos", "Control de bajas, extravíos y solicitudes asociadas.")
+    header(
+        "Bajas y Extravíos",
+        "Control de bajas, extravíos y solicitudes asociadas.",
+    )
 
     view = df[
         df["Tipo_Proceso"].astype(str).str.lower().str.contains("baja|extrav", na=False)
@@ -630,7 +693,10 @@ elif page == "Bajas":
 
 
 elif page == "Reposiciones":
-    header("Reposiciones", "Seguimiento desde solicitud hasta compra, recepción o cierre.")
+    header(
+        "Reposiciones",
+        "Seguimiento desde solicitud hasta compra, recepción o cierre.",
+    )
 
     view = df[
         df["Tipo_Proceso"].astype(str).str.lower().str.contains("repos", na=False)
@@ -640,7 +706,10 @@ elif page == "Reposiciones":
 
 
 elif page == "Adquisiciones":
-    header("Adquisiciones", "Control de procesos de compra, BACO, OC y proveedor.")
+    header(
+        "Adquisiciones",
+        "Control de procesos de compra, BACO, OC y proveedor.",
+    )
 
     view = df[
         df["Tipo_Proceso"].astype(str).str.lower().str.contains("adquis|compra", na=False)
@@ -660,12 +729,10 @@ elif page == "Repositorio Documental":
         "Consulta de documentos almacenados en Google Drive.",
     )
 
-    folder_id = "1wS6MoYjcfZGbZRtbEjPQPQTC0g_A4IGQ"
-
     st.markdown("### 📂 Documentos disponibles")
 
     try:
-        files = list_drive_files(folder_id)
+        files = list_drive_files(DRIVE_FOLDER_ID)
 
         if not files:
             st.info("No se encontraron documentos en la carpeta de Google Drive.")
@@ -703,13 +770,123 @@ elif page == "Repositorio Documental":
     except Exception as e:
         st.error("No se pudo acceder a la carpeta de Google Drive.")
         st.warning(
-            "Verifica que la cuenta de servicio tenga permiso de lector en la carpeta."
+            "Verifica que la Google Drive API esté habilitada y que la cuenta de servicio tenga permiso de lector en la carpeta."
+        )
+        st.code(str(e))
+
+
+elif page == "Reserva Presupuestaria":
+    header(
+        "Reserva Presupuestaria",
+        "Análisis ejecutivo del Anexo I f) · Fondo de reserva y gastos durante la explotación.",
+    )
+
+    try:
+        data = load_reserva_presupuestaria()
+
+        if not data:
+            st.info("No se encontraron datos en la hoja Anexo I f).")
+            st.stop()
+
+        df_raw = pd.DataFrame(data)
+
+        st.markdown("### 📊 Vista original del Anexo I f)")
+        st.dataframe(df_raw, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        st.markdown("### 📌 Resumen ejecutivo")
+
+        tabla = df_raw.iloc[22:30, 1:9].copy()
+
+        tabla.columns = [
+            "Año",
+            "Suplemento",
+            "VMA",
+            "Total general",
+            "VMA año explotación",
+            "Desembolsos explotación",
+            "En revisión desembolsos",
+            "Diferencia proyectada",
+        ]
+
+        tabla = tabla.dropna(how="all")
+        tabla = tabla[tabla["Año"].astype(str).str.strip() != ""]
+
+        for col in [
+            "Suplemento",
+            "VMA",
+            "Total general",
+            "VMA año explotación",
+            "Desembolsos explotación",
+            "En revisión desembolsos",
+            "Diferencia proyectada",
+        ]:
+            tabla[col] = tabla[col].apply(clean_number).fillna(0)
+
+        fila_total = tabla[
+            tabla["Año"].astype(str).str.contains("Total", case=False, na=False)
+        ]
+
+        total_general = fila_total["Total general"].sum()
+        total_vma = fila_total["VMA año explotación"].sum()
+        total_desembolsos = fila_total["Desembolsos explotación"].sum()
+        total_revision = fila_total["En revisión desembolsos"].sum()
+        diferencia = fila_total["Diferencia proyectada"].sum()
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+
+        with c1:
+            metric_card("Total proyectado UF", f"{total_general:,.2f}")
+
+        with c2:
+            metric_card("VMA explotación UF", f"{total_vma:,.2f}")
+
+        with c3:
+            metric_card("Desembolsado UF", f"{total_desembolsos:,.2f}")
+
+        with c4:
+            metric_card("En revisión UF", f"{total_revision:,.2f}")
+
+        with c5:
+            metric_card("Diferencia UF", f"{diferencia:,.2f}")
+
+        st.markdown("---")
+        st.markdown("### 📋 Tabla consolidada")
+
+        st.dataframe(
+            tabla,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("### 📈 Diferencia proyectada por año")
+
+        tabla_grafico = tabla[
+            ~tabla["Año"].astype(str).str.contains("Total", case=False, na=False)
+        ]
+
+        fig = px.bar(
+            tabla_grafico,
+            x="Año",
+            y="Diferencia proyectada",
+            text="Diferencia proyectada",
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    except Exception as e:
+        st.error("No se pudo cargar la Reserva Presupuestaria.")
+        st.warning(
+            "Verifica que la cuenta de servicio tenga permiso de lector en el archivo de Google Sheets."
         )
         st.code(str(e))
 
 
 elif page == "Alertas":
-    header("Alertas", "Procesos críticos, atrasados u observados.")
+    header(
+        "Alertas",
+        "Procesos críticos, atrasados u observados.",
+    )
 
     view = df[
         (df["Prioridad"].astype(str).str.lower() == "alta")
@@ -721,7 +898,10 @@ elif page == "Alertas":
 
 
 elif page == "Registro":
-    header("Registro de Solicitud", "Ingreso directo a Google Sheets.")
+    header(
+        "Registro de Solicitud",
+        "Ingreso directo a Google Sheets.",
+    )
 
     if not can_edit():
         st.error("No tiene permisos para registrar.")
@@ -770,13 +950,17 @@ elif page == "Registro":
             append_to_sheet("FACT_CTAR_SEGUIMIENTO", row)
             st.success("Solicitud guardada correctamente.")
             st.rerun()
+
         except Exception as e:
             st.error("No se pudo guardar en Google Sheets.")
             st.code(str(e))
 
 
 elif page == "Configuración":
-    header("Configuración", "Validación de conexión y estructura Google Sheets.")
+    header(
+        "Configuración",
+        "Validación de conexión y estructura Google Sheets.",
+    )
 
     st.markdown("### Hojas detectadas")
     st.write(list(tables.keys()))
