@@ -761,14 +761,278 @@ elif page == "Seguimiento":
 elif page == "Bajas":
     header(
         "Bajas y Extravíos",
-        "Control de bajas, extravíos y solicitudes asociadas.",
+        "Control ejecutivo de equipos dados de baja, extravíos, hurtos y seguimiento CTAR.",
     )
 
-    view = df[
-        df["Tipo_Proceso"].astype(str).str.lower().str.contains("baja|extrav", na=False)
-    ]
+    def prioridad_baja(row):
+        texto = " ".join([
+            str(row.get("Motivo_Baja", "")),
+            str(row.get("Estado_Baja", "")),
+            str(row.get("CAUSAL RECLAMADA", "")),
+            str(row.get("CAUSAL APROBADA", "")),
+            str(row.get("Observaciones", "")),
+            str(row.get("DETALLE", "")),
+            str(row.get("BAJA DE:", "")),
+            str(row.get("TIPO/EQUIPO", "")),
+        ]).lower()
 
-    st.dataframe(view, use_container_width=True, hide_index=True)
+        if "hurto" in texto or "robo" in texto or "extrav" in texto:
+            return "Alta"
+
+        if "en revisión" in texto or "revision" in texto or "pendiente" in texto:
+            return "Media"
+
+        if "aprob" in texto or "cerrado" in texto or "entregado" in texto:
+            return "Baja"
+
+        return "Media"
+
+    def color_prioridad(row):
+        prioridad = str(row.get("Prioridad_Baja", "")).lower()
+
+        if prioridad == "alta":
+            return [
+                "background-color: #fee2e2; color: #7f1d1d; font-weight: bold"
+            ] * len(row)
+
+        if prioridad == "media":
+            return [
+                "background-color: #fef3c7; color: #78350f"
+            ] * len(row)
+
+        if prioridad == "baja":
+            return [
+                "background-color: #dcfce7; color: #14532d"
+            ] * len(row)
+
+        return [""] * len(row)
+
+    st.markdown("## 📌 Resumen de bajas")
+
+    bajas = tables.get("FACT_BAJAS", pd.DataFrame()).copy()
+
+    if bajas.empty:
+        st.info("No hay registros cargados en FACT_BAJAS.")
+    else:
+        if "ID_CTAR" in bajas.columns and "ID_CTAR" in df.columns:
+            base = bajas.merge(
+                df,
+                on="ID_CTAR",
+                how="left",
+                suffixes=("_Baja", ""),
+            )
+        else:
+            base = bajas.copy()
+
+        base["Prioridad_Baja"] = base.apply(prioridad_baja, axis=1)
+
+        total_bajas = len(base)
+        altas = int((base["Prioridad_Baja"] == "Alta").sum())
+        medias = int((base["Prioridad_Baja"] == "Media").sum())
+        bajas_prioridad = int((base["Prioridad_Baja"] == "Baja").sum())
+
+        revision = int(
+            base.astype(str)
+            .apply(
+                lambda x: x.str.lower().str.contains(
+                    "revisión|revision|pendiente",
+                    na=False,
+                    regex=True,
+                )
+            )
+            .any(axis=1)
+            .sum()
+        )
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+
+        with c1:
+            st.metric("Total bajas", total_bajas)
+
+        with c2:
+            st.metric("Prioridad alta", altas)
+
+        with c3:
+            st.metric("Prioridad media", medias)
+
+        with c4:
+            st.metric("En revisión / pendiente", revision)
+
+        with c5:
+            st.metric("Prioridad baja", bajas_prioridad)
+
+        st.markdown("---")
+
+        st.markdown("## 🚦 Priorización")
+
+        resumen_prioridad = base.groupby("Prioridad_Baja").size().reset_index(
+            name="Cantidad"
+        )
+
+        fig = px.bar(
+            resumen_prioridad,
+            x="Prioridad_Baja",
+            y="Cantidad",
+            text="Cantidad",
+            title="Distribución de bajas según prioridad",
+        )
+
+        fig.update_layout(
+            height=420,
+            xaxis_title="Prioridad",
+            yaxis_title="Cantidad de registros",
+            title_x=0.02,
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("## 📋 Registro consolidado de bajas")
+
+        columnas_preferidas = [
+            "ID_Baja",
+            "ID_CTAR",
+            "SIC",
+            "Equipo",
+            "Nro_Inventario",
+            "Servicio",
+            "Motivo_Baja",
+            "Estado_Baja",
+            "Fecha_Baja",
+            "Prioridad_Baja",
+            "Responsable",
+            "Estado",
+            "Proxima_Accion",
+            "Link_Documento",
+        ]
+
+        columnas_disponibles = [
+            c for c in columnas_preferidas if c in base.columns
+        ]
+
+        if columnas_disponibles:
+            tabla_bajas = base[columnas_disponibles].copy()
+        else:
+            tabla_bajas = base.copy()
+
+        st.dataframe(
+            tabla_bajas.style.apply(color_prioridad, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.markdown("---")
+
+    st.markdown("## 📤 Cargar archivo hospital")
+
+    archivo_hospital = st.file_uploader(
+        "Subir archivo Excel del Hospital, por ejemplo: Copia de 7.- Equipos de Baja LRP.xlsx",
+        type=["xlsx"],
+    )
+
+    if archivo_hospital is not None:
+        try:
+            try:
+                hospital_df = pd.read_excel(
+                    archivo_hospital,
+                    sheet_name="V1",
+                    header=1,
+                    engine="openpyxl",
+                )
+            except Exception:
+                archivo_hospital.seek(0)
+                hospital_df = pd.read_excel(
+                    archivo_hospital,
+                    sheet_name=0,
+                    header=1,
+                    engine="openpyxl",
+                )
+
+            hospital_df = hospital_df.dropna(how="all")
+            hospital_df.columns = [str(c).strip() for c in hospital_df.columns]
+
+            hospital_df["Prioridad_Baja"] = hospital_df.apply(
+                prioridad_baja,
+                axis=1,
+            )
+
+            st.success(
+                f"Archivo hospital cargado correctamente: {len(hospital_df)} registros detectados."
+            )
+
+            st.markdown("## 🏥 Información entregada por Hospital")
+
+            columnas_hospital = [
+                "CTAR",
+                "OFICIO",
+                "FECHA",
+                "CARTA/ORD",
+                "FECHA CARTA",
+                "FECHA INCIDENCIA",
+                "BAJA DE:",
+                "TIPO/EQUIPO",
+                "C.RECINTO",
+                "SIC",
+                "Estado SIC",
+                "UNIDAD",
+                "NOMBRE EQUIPO",
+                "MARCA",
+                "MODELO",
+                "N° SERIE",
+                "N° INVENTARIO",
+                "PROVEEDOR",
+                "CAUSAL RECLAMADA",
+                "CAUSAL APROBADA",
+                "DETALLE",
+                "VALOR (NETO)",
+                "CARGADO A FONDO",
+                "ORDEN DE COMPRA",
+                "OT ENTREGA AL SERVICIO",
+                "CARGADO AL SIC",
+                "Observaciones",
+                "Prioridad_Baja",
+            ]
+
+            columnas_hospital_disponibles = [
+                c for c in columnas_hospital if c in hospital_df.columns
+            ]
+
+            if columnas_hospital_disponibles:
+                vista_hospital = hospital_df[columnas_hospital_disponibles].copy()
+            else:
+                vista_hospital = hospital_df.copy()
+
+            st.dataframe(
+                vista_hospital.style.apply(color_prioridad, axis=1),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.markdown("## 📊 Resumen archivo hospital")
+
+            resumen_hospital = hospital_df.groupby("Prioridad_Baja").size().reset_index(
+                name="Cantidad"
+            )
+
+            fig_hospital = px.bar(
+                resumen_hospital,
+                x="Prioridad_Baja",
+                y="Cantidad",
+                text="Cantidad",
+                title="Cantidad de bajas por prioridad según archivo hospital",
+            )
+
+            fig_hospital.update_layout(
+                height=420,
+                xaxis_title="Prioridad",
+                yaxis_title="Cantidad",
+                title_x=0.02,
+            )
+
+            st.plotly_chart(fig_hospital, use_container_width=True)
+
+        except Exception as e:
+            st.error("No se pudo procesar el archivo del Hospital.")
+            st.code(str(e))
 
 
 elif page == "Reposiciones":
