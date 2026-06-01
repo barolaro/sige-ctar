@@ -979,6 +979,39 @@ elif page == "Bajas":
 
         vista = df_hospital[columnas_vista].copy()
 
+        # Normalización de tipos para evitar errores en st.data_editor.
+        # Las columnas editables deben venir como texto, no como float.
+        columnas_texto_editor = [
+            "PRIORIDAD_HOSPITAL",
+            "JUSTIFICACION_PRIORIDAD",
+            "GESTION_CTAR",
+            "FECHA_ULTIMA_GESTION",
+            "ESTADO_CTAR",
+            "CERRADO",
+            "FECHA_CIERRE",
+            "OBSERVACION_CIERRE",
+            "RESPONSABLE_CTAR",
+        ]
+
+        for col in columnas_texto_editor:
+            if col in vista.columns:
+                vista[col] = vista[col].fillna("").astype(str)
+
+        if "PRIORIDAD_HOSPITAL" in vista.columns:
+            vista["PRIORIDAD_HOSPITAL"] = vista["PRIORIDAD_HOSPITAL"].replace(
+                {"": "🟡 Amarilla", "nan": "🟡 Amarilla", "None": "🟡 Amarilla"}
+            )
+
+        if "ESTADO_CTAR" in vista.columns:
+            vista["ESTADO_CTAR"] = vista["ESTADO_CTAR"].replace(
+                {"": "Pendiente", "nan": "Pendiente", "None": "Pendiente"}
+            )
+
+        if "CERRADO" in vista.columns:
+            vista["CERRADO"] = vista["CERRADO"].replace(
+                {"": "No", "nan": "No", "None": "No", "False": "No", "false": "No", "0": "No", "True": "Sí", "true": "Sí", "1": "Sí"}
+            )
+
         disabled_cols = [c for c in vista.columns]
 
         if role() == "hospital":
@@ -1043,6 +1076,15 @@ elif page == "Bajas":
             },
             key="editor_bajas_ctar",
         )
+
+        for col in columnas_texto_editor:
+            if col in edited.columns:
+                edited[col] = edited[col].fillna("").astype(str)
+
+        if "CERRADO" in edited.columns:
+            edited["CERRADO"] = edited["CERRADO"].replace(
+                {"": "No", "nan": "No", "None": "No", "False": "No", "false": "No", "0": "No", "True": "Sí", "true": "Sí", "1": "Sí"}
+            )
 
         edited["ORDEN_PRIORIDAD"] = edited["PRIORIDAD_HOSPITAL"].apply(orden_prioridad)
         edited = edited.sort_values(
