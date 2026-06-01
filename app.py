@@ -115,6 +115,60 @@ st.markdown(
         font-weight: 700;
         text-decoration: none;
     }
+
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(160px, 1fr));
+        gap: 14px;
+        margin-bottom: 22px;
+    }
+
+    .kpi-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        padding: 18px;
+        box-shadow: 0 4px 12px rgba(15,23,42,.08);
+        min-height: 135px;
+        overflow: hidden;
+    }
+
+    .kpi-title {
+        font-size: 13px;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 12px;
+        line-height: 1.25;
+    }
+
+    .kpi-value {
+        font-size: clamp(22px, 2.1vw, 30px);
+        font-weight: 900;
+        color: #1f2937;
+        line-height: 1.1;
+        white-space: nowrap;
+    }
+
+    .kpi-negative {
+        color: #b91c1c;
+    }
+
+    .kpi-positive {
+        color: #047857;
+    }
+
+    @media (max-width: 1200px) {
+        .kpi-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media (max-width: 700px) {
+        .kpi-grid {
+            grid-template-columns: 1fr;
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -813,12 +867,6 @@ elif page == "Reserva Presupuestaria":
             st.info("No se encontraron datos en la hoja Anexo I f).")
             st.stop()
 
-        st.markdown("### 📊 Vista original del Anexo I f)")
-        st.dataframe(df_raw, use_container_width=True, hide_index=True)
-
-        st.markdown("---")
-        st.markdown("### 📌 Resumen ejecutivo")
-
         tabla = df_raw.iloc[22:30, 1:9].copy()
 
         tabla.columns = [
@@ -835,7 +883,7 @@ elif page == "Reserva Presupuestaria":
         tabla = tabla.dropna(how="all")
         tabla = tabla[tabla["Año"].astype(str).str.strip() != ""]
 
-        for col in [
+        columnas_uf = [
             "Suplemento",
             "VMA",
             "Total general",
@@ -843,12 +891,18 @@ elif page == "Reserva Presupuestaria":
             "Desembolsos explotación",
             "En revisión desembolsos",
             "Diferencia proyectada",
-        ]:
+        ]
+
+        for col in columnas_uf:
             tabla[col] = tabla[col].apply(clean_number).fillna(0)
 
         fila_total = tabla[
             tabla["Año"].astype(str).str.contains("Total", case=False, na=False)
         ]
+
+        tabla_anios = tabla[
+            ~tabla["Año"].astype(str).str.contains("Total", case=False, na=False)
+        ].copy()
 
         total_general = fila_total["Total general"].sum()
         total_vma = fila_total["VMA año explotación"].sum()
@@ -856,46 +910,122 @@ elif page == "Reserva Presupuestaria":
         total_revision = fila_total["En revisión desembolsos"].sum()
         diferencia = fila_total["Diferencia proyectada"].sum()
 
-        c1, c2, c3, c4, c5 = st.columns(5)
+        st.markdown("## 📌 Resumen ejecutivo")
 
-        with c1:
-            metric_card("Total proyectado UF", f"{total_general:,.2f}")
+        diferencia_class = "kpi-negative" if diferencia < 0 else "kpi-positive"
 
-        with c2:
-            metric_card("VMA explotación UF", f"{total_vma:,.2f}")
+        st.markdown(
+            f"""
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-title">Total proyectado<br>UF</div>
+                    <div class="kpi-value">{total_general:,.2f}</div>
+                </div>
 
-        with c3:
-            metric_card("Desembolsado UF", f"{total_desembolsos:,.2f}")
+                <div class="kpi-card">
+                    <div class="kpi-title">VMA explotación<br>UF</div>
+                    <div class="kpi-value">{total_vma:,.2f}</div>
+                </div>
 
-        with c4:
-            metric_card("En revisión UF", f"{total_revision:,.2f}")
+                <div class="kpi-card">
+                    <div class="kpi-title">Desembolsado<br>UF</div>
+                    <div class="kpi-value">{total_desembolsos:,.2f}</div>
+                </div>
 
-        with c5:
-            metric_card("Diferencia UF", f"{diferencia:,.2f}")
+                <div class="kpi-card">
+                    <div class="kpi-title">En revisión<br>UF</div>
+                    <div class="kpi-value">{total_revision:,.2f}</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-title">Diferencia<br>UF</div>
+                    <div class="kpi-value {diferencia_class}">{diferencia:,.2f}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         st.markdown("---")
-        st.markdown("### 📋 Tabla consolidada")
+
+        st.markdown("## 📋 Tabla ejecutiva consolidada")
 
         st.dataframe(
-            tabla,
+            tabla.style.format({
+                col: "{:,.2f}" for col in columnas_uf
+            }),
             use_container_width=True,
             hide_index=True,
         )
 
-        st.markdown("### 📈 Diferencia proyectada por año")
+        st.markdown("---")
 
-        tabla_grafico = tabla[
-            ~tabla["Año"].astype(str).str.contains("Total", case=False, na=False)
-        ]
+        st.markdown("## 📈 Comparativo financiero por año")
+
+        grafico_base = tabla_anios.melt(
+            id_vars="Año",
+            value_vars=[
+                "VMA año explotación",
+                "Desembolsos explotación",
+                "En revisión desembolsos",
+            ],
+            var_name="Concepto",
+            value_name="UF",
+        )
 
         fig = px.bar(
-            tabla_grafico,
+            grafico_base,
             x="Año",
-            y="Diferencia proyectada",
-            text="Diferencia proyectada",
+            y="UF",
+            color="Concepto",
+            barmode="group",
+            text_auto=",.0f",
+            title="Comparación entre VMA, desembolsos y montos en revisión",
+        )
+
+        fig.update_layout(
+            height=520,
+            xaxis_title="Año de explotación",
+            yaxis_title="Monto UF",
+            legend_title="Concepto",
+            title_x=0.02,
+            bargap=0.25,
         )
 
         st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("## 🔎 Diferencia proyectada por año")
+
+        fig2 = px.bar(
+            tabla_anios,
+            x="Año",
+            y="Diferencia proyectada",
+            text="Diferencia proyectada",
+            title="Diferencia proyectada respecto del fondo de reserva",
+        )
+
+        fig2.update_traces(
+            texttemplate="%{text:,.0f}",
+            textposition="outside",
+        )
+
+        fig2.update_layout(
+            height=500,
+            xaxis_title="Año de explotación",
+            yaxis_title="Diferencia proyectada UF",
+            title_x=0.02,
+        )
+
+        st.plotly_chart(fig2, use_container_width=True)
+
+        st.markdown("---")
+
+        with st.expander("📄 Ver planilla original completa"):
+            st.dataframe(
+                df_raw,
+                use_container_width=True,
+                hide_index=True,
+            )
 
     except Exception as e:
         st.error("No se pudo cargar la Reserva Presupuestaria.")
