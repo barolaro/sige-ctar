@@ -1258,23 +1258,94 @@ elif page == "Seguimiento CTAR":
         "Vista de solo lectura para Hospital: prioridades informadas y avance de gestión CTAR.",
     )
 
+    def normalizar_seguimiento(dataframe):
+        out = dataframe.copy()
+        out.columns = [str(c).strip().replace(" ", "_") for c in out.columns]
+
+        columnas = [
+            "PRIORIDAD_HOSPITAL",
+            "JUSTIFICACION_PRIORIDAD",
+            "GESTION_CTAR",
+            "FECHA_ULTIMA_GESTION",
+            "ESTADO_CTAR",
+            "CERRADO",
+            "FECHA_CIERRE",
+            "OBSERVACION_CIERRE",
+        ]
+
+        for col in columnas:
+            if col not in out.columns:
+                out[col] = ""
+
+            out[col] = out[col].fillna("").astype(str)
+            out[col] = out[col].replace({"nan": "", "None": ""})
+
+        out["ESTADO_CTAR"] = out["ESTADO_CTAR"].replace("", "Pendiente")
+        out["CERRADO"] = out["CERRADO"].replace(
+            {
+                "": "No",
+                "False": "No",
+                "false": "No",
+                "0": "No",
+                "True": "Sí",
+                "true": "Sí",
+                "1": "Sí",
+            }
+        )
+
+        return out
+
+    def orden_prioridad_seguimiento(valor):
+        v = str(valor).lower()
+
+        if "roja" in v or "rojo" in v or "🔴" in v:
+            return 1
+        if "naranjo" in v or "naranja" in v or "🟠" in v:
+            return 2
+        if "amarilla" in v or "amarillo" in v or "🟡" in v:
+            return 3
+        if "verde" in v or "🟢" in v:
+            return 4
+
+        return 9
+
+    def color_fila_seguimiento(row):
+        p = str(row.get("PRIORIDAD_HOSPITAL", "")).lower()
+
+        if "roja" in p or "rojo" in p or "🔴" in p:
+            return ["background-color: #fee2e2; color: #7f1d1d; font-weight: bold"] * len(row)
+        if "naranjo" in p or "naranja" in p or "🟠" in p:
+            return ["background-color: #ffedd5; color: #7c2d12; font-weight: bold"] * len(row)
+        if "amarilla" in p or "amarillo" in p or "🟡" in p:
+            return ["background-color: #fef9c3; color: #713f12"] * len(row)
+        if "verde" in p or "🟢" in p:
+            return ["background-color: #dcfce7; color: #14532d"] * len(row)
+
+        return [""] * len(row)
+
     bajas = tables.get("FACT_BAJAS", pd.DataFrame()).copy()
 
     if bajas.empty:
         st.info("No hay registros disponibles para seguimiento CTAR.")
         st.stop()
 
-    bajas = normalize_text_columns(bajas)
+    bajas = normalizar_seguimiento(bajas)
 
-    # Solo casos activos para hospital
-    activos, historico_auto = separar_activos_historico(bajas)
+    cerrado = bajas["CERRADO"].astype(str).str.lower().isin(
+        ["sí", "si", "s", "true", "1", "cerrado"]
+    ) | bajas["ESTADO_CTAR"].astype(str).str.lower().eq("cerrado")
+
+    activos = bajas[~cerrado].copy()
 
     if activos.empty:
         st.success("No hay casos activos pendientes.")
         st.stop()
 
-    activos["ORDEN_PRIORIDAD"] = activos["PRIORIDAD_HOSPITAL"].apply(orden_prioridad)
-    activos = activos.sort_values(["ORDEN_PRIORIDAD"]).drop(columns=["ORDEN_PRIORIDAD"])
+    activos["ORDEN_PRIORIDAD"] = activos["PRIORIDAD_HOSPITAL"].apply(
+        orden_prioridad_seguimiento
+    )
+
+    activos = activos.sort_values("ORDEN_PRIORIDAD").drop(columns=["ORDEN_PRIORIDAD"])
 
     st.markdown("## 📌 Resumen de seguimiento")
 
@@ -1284,28 +1355,16 @@ elif page == "Seguimiento CTAR":
         st.metric("Casos activos", len(activos))
 
     with c2:
-        st.metric(
-            "🔴 Rojas",
-            int(activos["PRIORIDAD_HOSPITAL"].astype(str).str.contains("Roja", na=False).sum()),
-        )
+        st.metric("🔴 Rojas", int(activos["PRIORIDAD_HOSPITAL"].str.contains("Roja", na=False).sum()))
 
     with c3:
-        st.metric(
-            "🟠 Naranjo",
-            int(activos["PRIORIDAD_HOSPITAL"].astype(str).str.contains("Naranjo", na=False).sum()),
-        )
+        st.metric("🟠 Naranjo", int(activos["PRIORIDAD_HOSPITAL"].str.contains("Naranjo", na=False).sum()))
 
     with c4:
-        st.metric(
-            "🟡 Amarillo",
-            int(activos["PRIORIDAD_HOSPITAL"].astype(str).str.contains("Amarillo", na=False).sum()),
-        )
+        st.metric("🟡 Amarillo", int(activos["PRIORIDAD_HOSPITAL"].str.contains("Amarilla|Amarillo", na=False, regex=True).sum()))
 
     with c5:
-        st.metric(
-            "🟢 Verde",
-            int(activos["PRIORIDAD_HOSPITAL"].astype(str).str.contains("Verde", na=False).sum()),
-        )
+        st.metric("🟢 Verde", int(activos["PRIORIDAD_HOSPITAL"].str.contains("Verde", na=False).sum()))
 
     st.markdown("---")
 
@@ -1345,7 +1404,7 @@ elif page == "Seguimiento CTAR":
         vista_hospital = vista_hospital[mask]
 
     st.dataframe(
-        vista_hospital.style.apply(color_prioridad_row, axis=1),
+        vista_hospital.style.apply(color_fila_seguimiento, axis=1),
         use_container_width=True,
         hide_index=True,
     )
@@ -1353,7 +1412,6 @@ elif page == "Seguimiento CTAR":
     st.info(
         "Esta vista es solo de consulta. La gestión, cierre e histórico son administrados por el perfil CTAR/Administrador."
     )
-
 
 elif page == "Reposiciones":
     header(
