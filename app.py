@@ -906,6 +906,7 @@ elif page == "Bajas":
         "Compra iniciada",
         "OC emitida",
         "Recepcionado",
+        "Finalizado",
         "Cerrado",
     ]
 
@@ -935,6 +936,12 @@ elif page == "Bajas":
         "GESTION_CTAR",
         "FECHA_ULTIMA_GESTION",
         "ESTADO_CTAR",
+        "EN_MESA_CTAR",
+        "SEMANA_MESA_CTAR",
+        "FECHA_MESA_CTAR",
+        "OBSERVACION_MESA_CTAR",
+        "ACUERDO_MESA_CTAR",
+        "RESPONSABLE_ACUERDO",
         "CERRADO",
         "FECHA_CIERRE",
         "OBSERVACION_CIERRE",
@@ -960,6 +967,12 @@ elif page == "Bajas":
         "GESTION_CTAR": "GESTIÓN CTAR",
         "FECHA_ULTIMA_GESTION": "FECHA ÚLTIMA GESTIÓN",
         "ESTADO_CTAR": "ESTADO CTAR",
+        "EN_MESA_CTAR": "EN MESA CTAR",
+        "SEMANA_MESA_CTAR": "SEMANA MESA CTAR",
+        "FECHA_MESA_CTAR": "FECHA MESA CTAR",
+        "OBSERVACION_MESA_CTAR": "OBSERVACIÓN MESA CTAR",
+        "ACUERDO_MESA_CTAR": "ACUERDO MESA CTAR",
+        "RESPONSABLE_ACUERDO": "RESPONSABLE ACUERDO",
         "CERRADO": "CERRADO",
         "FECHA_CIERRE": "FECHA CIERRE",
         "OBSERVACION_CIERRE": "OBSERVACIÓN CIERRE",
@@ -990,6 +1003,12 @@ elif page == "Bajas":
             "PRESENTA_CTAR": "Presentada_a_CTAR",
             "JUSTIFICACION_PRIORIDAD": "JUSTIFICACION_HOSPITAL",
             "PRIORIDAD": "PRIORIDAD_HOSPITAL",
+            "EN_MESA_CTAR?": "EN_MESA_CTAR",
+            "EN_MESA": "EN_MESA_CTAR",
+            "MESA_CTAR": "EN_MESA_CTAR",
+            "SEMANA_MESA": "SEMANA_MESA_CTAR",
+            "OBSERVACION_MESA": "OBSERVACION_MESA_CTAR",
+            "ACUERDO_MESA": "ACUERDO_MESA_CTAR",
         }
 
         for origen, destino in alias.items():
@@ -1020,6 +1039,11 @@ elif page == "Bajas":
             }
         )
 
+        if "EN_MESA_CTAR" in out.columns:
+            out["EN_MESA_CTAR"] = out["EN_MESA_CTAR"].apply(
+                lambda x: True if str(x).strip().lower() in ["sí", "si", "s", "true", "1", "x", "checked"] else False
+            )
+
         # Mantiene primero las columnas oficiales y luego cualquier columna adicional.
         extras = [c for c in out.columns if c not in columnas_finales]
         return out[columnas_finales + extras].fillna("")
@@ -1029,6 +1053,10 @@ elif page == "Bajas":
         columnas_orden = COLUMNAS_BASE_BAJAS + COLUMNAS_CONTROL_BAJAS
         extras = [c for c in out.columns if c not in columnas_orden]
         out = out[[c for c in columnas_orden if c in out.columns] + extras]
+        if "EN_MESA_CTAR" in out.columns:
+            out["EN_MESA_CTAR"] = out["EN_MESA_CTAR"].apply(
+                lambda x: "Sí" if str(x).strip().lower() in ["true", "sí", "si", "s", "1", "x", "checked"] else "No"
+            )
         out.rename(columns={c: LABELS_BAJAS.get(c, c) for c in out.columns}, inplace=True)
         return out
 
@@ -1066,8 +1094,9 @@ elif page == "Bajas":
     def color_fila_prioridad(row):
         p = str(row.get("PRIORIDAD_HOSPITAL", "")).lower()
         cerrado = str(row.get("CERRADO", "")).lower()
+        estado_ctar = str(row.get("ESTADO_CTAR", "")).lower()
 
-        if cerrado in ["sí", "si", "true", "1", "cerrado"]:
+        if cerrado in ["sí", "si", "true", "1", "cerrado", "finalizado"] or estado_ctar in ["cerrado", "finalizado"]:
             return ["background-color: #dbeafe; color: #1e3a8a"] * len(row)
         if "roja" in p or "rojo" in p or "🔴" in p:
             return ["background-color: #fee2e2; color: #7f1d1d; font-weight: bold"] * len(row)
@@ -1098,6 +1127,12 @@ elif page == "Bajas":
             "GESTION_CTAR": st.column_config.TextColumn("GESTIÓN CTAR"),
             "FECHA_ULTIMA_GESTION": st.column_config.TextColumn("FECHA ÚLTIMA GESTIÓN"),
             "ESTADO_CTAR": st.column_config.SelectboxColumn("ESTADO CTAR", options=ESTADOS_CTAR),
+            "EN_MESA_CTAR": st.column_config.CheckboxColumn("En Mesa CTAR", default=False),
+            "SEMANA_MESA_CTAR": st.column_config.TextColumn("SEMANA MESA CTAR"),
+            "FECHA_MESA_CTAR": st.column_config.TextColumn("FECHA MESA CTAR"),
+            "OBSERVACION_MESA_CTAR": st.column_config.TextColumn("OBSERVACIÓN MESA CTAR"),
+            "ACUERDO_MESA_CTAR": st.column_config.TextColumn("ACUERDO MESA CTAR"),
+            "RESPONSABLE_ACUERDO": st.column_config.TextColumn("RESPONSABLE ACUERDO"),
             "CERRADO": st.column_config.SelectboxColumn("CERRADO", options=["No", "Sí"]),
             "FECHA_CIERRE": st.column_config.TextColumn("FECHA CIERRE"),
             "OBSERVACION_CIERRE": st.column_config.TextColumn("OBSERVACIÓN CIERRE"),
@@ -1112,7 +1147,7 @@ elif page == "Bajas":
         matriz = pd.DataFrame(
             {
                 "Prioridad": [1, 2, 3, 4],
-                "Color": ["🔴 Roja", "🟠 Naranjo", "🟡 Amarilla", "🟢 Verde"],
+                "Color": ["🔴 Rojo", "🟠 Naranjo", "🟡 Amarillo", "🟢 Verde"],
                 "Categoría": [
                     "Crítico / Muy Urgente",
                     "Alta Prioridad / Urgente",
@@ -1120,10 +1155,10 @@ elif page == "Bajas":
                     "Prioridad Baja",
                 ],
                 "Criterio de Priorización": [
-                    "La ausencia del equipamiento impacta directamente la continuidad de la atención clínica.",
-                    "La falta del equipamiento genera limitaciones relevantes en la capacidad operativa del servicio clínico.",
-                    "La ausencia del equipamiento no detiene la prestación, pero afecta eficiencia, tiempos o continuidad operativa.",
-                    "La falta del equipamiento no genera impacto significativo en la continuidad asistencial.",
+                    "La ausencia del equipamiento impacta directamente la continuidad de la atención clínica, comprometiendo la prestación del servicio o la seguridad de pacientes y funcionarios.",
+                    "La falta del equipamiento genera limitaciones relevantes en la capacidad operativa del servicio clínico, debiendo recurrir a alternativas parciales o redistribución de recursos.",
+                    "La ausencia del equipamiento no detiene la prestación clínica, pero afecta la eficiencia operativa, tiempos de respuesta o capacidad de atención del servicio.",
+                    "La ausencia del equipamiento no genera impacto significativo en la continuidad asistencial y existen alternativas operativas disponibles mientras se gestiona su reposición.",
                 ],
             }
         )
@@ -1184,8 +1219,10 @@ elif page == "Bajas":
                 dv.add(f"{col_letter}2:{col_letter}5000")
 
             colores = {
+                "🔴 Rojo": "FF0000",
                 "🔴 Roja": "FF0000",
                 "🟠 Naranjo": "F4B183",
+                "🟡 Amarillo": "FFFF00",
                 "🟡 Amarilla": "FFFF00",
                 "🟢 Verde": "00B050",
             }
@@ -1245,7 +1282,7 @@ elif page == "Bajas":
         data = normalizar_bajas_oficial(df_gestion)
         cerrado = data["CERRADO"].astype(str).str.lower().isin(
             ["sí", "si", "s", "true", "1", "cerrado"]
-        ) | data["ESTADO_CTAR"].astype(str).str.lower().eq("cerrado")
+        ) | data["ESTADO_CTAR"].astype(str).str.lower().isin(["cerrado", "finalizado"])
 
         historico = data[cerrado].copy()
         activos = data[~cerrado].copy()
@@ -1276,6 +1313,12 @@ elif page == "Bajas":
     with tab1:
         st.markdown("## 📤 Planilla para enviar al Hospital")
         st.info("Descarga esta planilla y envíala al Hospital. El Hospital solo debe completar PRIORIDAD HOSPITAL y JUSTIFICACIÓN HOSPITAL.")
+
+        if can_edit():
+            if st.button("🧩 Preparar/actualizar estructura FACT_BAJAS en Google Sheets"):
+                escribir_hoja("FACT_BAJAS", bajas)
+                st.success("FACT_BAJAS quedó actualizada con columnas de priorización, Mesa CTAR, cierre e histórico.")
+                st.rerun()
 
         archivo_excel = crear_planilla_hospital(bajas)
 
@@ -1383,8 +1426,29 @@ elif page == "Bajas":
             key="editor_gestion_bajas_ctar_oficial",
         )
 
+        st.markdown("---")
+        st.markdown("## 🎯 Casos programados para Mesa CTAR")
+        mesa = edited.copy()
+        if "EN_MESA_CTAR" in mesa.columns:
+            mesa = mesa[mesa["EN_MESA_CTAR"].apply(lambda x: str(x).strip().lower() in ["true", "sí", "si", "s", "1", "x", "checked"])]
+        else:
+            mesa = mesa.iloc[0:0]
+
+        st.metric("Casos en Mesa CTAR", len(mesa))
+        columnas_mesa = [
+            "SIC", "NOMBRE_EQUIPO", "Serie", "Inventario", "PRIORIDAD_HOSPITAL",
+            "ESTADO_CTAR", "SEMANA_MESA_CTAR", "FECHA_MESA_CTAR",
+            "OBSERVACION_MESA_CTAR", "ACUERDO_MESA_CTAR", "RESPONSABLE_ACUERDO"
+        ]
+        st.dataframe(
+            preparar_dataframe_streamlit(mesa[[c for c in columnas_mesa if c in mesa.columns]]),
+            use_container_width=True,
+            hide_index=True,
+            column_config=column_config_bajas(),
+        )
+
         if can_edit():
-            if st.button("💾 Guardar gestión CTAR y mover cerrados a histórico"):
+            if st.button("💾 Guardar gestión CTAR y mover finalizados a histórico"):
                 edited = normalizar_bajas_oficial(edited)
                 original = normalizar_bajas_oficial(bajas)
 
@@ -1455,6 +1519,7 @@ elif page == "Seguimiento CTAR":
         "Compra iniciada",
         "OC emitida",
         "Recepcionado",
+        "Finalizado",
         "Cerrado",
     ]
 
@@ -1477,6 +1542,7 @@ elif page == "Seguimiento CTAR":
 
     COLUMNAS_HOSPITAL_BAJAS = ["PRIORIDAD_HOSPITAL", "JUSTIFICACION_HOSPITAL"]
     COLUMNAS_CTAR_VISIBLE = ["GESTION_CTAR", "FECHA_ULTIMA_GESTION", "ESTADO_CTAR"]
+    COLUMNAS_MESA_VISIBLE = ["EN_MESA_CTAR", "SEMANA_MESA_CTAR", "FECHA_MESA_CTAR", "OBSERVACION_MESA_CTAR", "ACUERDO_MESA_CTAR"]
 
     def limpiar_nombre_columna(col):
         col = str(col).strip().replace(" ", "_")
@@ -1509,7 +1575,7 @@ elif page == "Seguimiento CTAR":
 
         out = resolver_columnas_duplicadas(out)
 
-        columnas = COLUMNAS_BASE_BAJAS + COLUMNAS_HOSPITAL_BAJAS + COLUMNAS_CTAR_VISIBLE + ["CERRADO"]
+        columnas = COLUMNAS_BASE_BAJAS + COLUMNAS_HOSPITAL_BAJAS + COLUMNAS_CTAR_VISIBLE + COLUMNAS_MESA_VISIBLE + ["CERRADO"]
         for col in columnas:
             if col not in out.columns:
                 out[col] = ""
@@ -1527,6 +1593,10 @@ elif page == "Seguimiento CTAR":
                 "1": "Sí",
             }
         )
+        if "EN_MESA_CTAR" in out.columns:
+            out["EN_MESA_CTAR"] = out["EN_MESA_CTAR"].apply(
+                lambda x: "Sí" if str(x).strip().lower() in ["true", "sí", "si", "s", "1", "x", "checked"] else "No"
+            )
         return out.fillna("")
 
     def orden_prioridad_hospital(valor):
@@ -1572,6 +1642,11 @@ elif page == "Seguimiento CTAR":
             "GESTION_CTAR": st.column_config.TextColumn("GESTIÓN CTAR"),
             "FECHA_ULTIMA_GESTION": st.column_config.TextColumn("FECHA ÚLTIMA GESTIÓN"),
             "ESTADO_CTAR": st.column_config.TextColumn("ESTADO CTAR"),
+            "EN_MESA_CTAR": st.column_config.TextColumn("EN MESA CTAR"),
+            "SEMANA_MESA_CTAR": st.column_config.TextColumn("SEMANA MESA CTAR"),
+            "FECHA_MESA_CTAR": st.column_config.TextColumn("FECHA MESA CTAR"),
+            "OBSERVACION_MESA_CTAR": st.column_config.TextColumn("OBSERVACIÓN MESA CTAR"),
+            "ACUERDO_MESA_CTAR": st.column_config.TextColumn("ACUERDO MESA CTAR"),
         }
 
     bajas = tables.get("FACT_BAJAS", pd.DataFrame()).copy()
@@ -1584,7 +1659,7 @@ elif page == "Seguimiento CTAR":
 
     cerrado = bajas["CERRADO"].astype(str).str.lower().isin(
         ["sí", "si", "s", "true", "1", "cerrado"]
-    ) | bajas["ESTADO_CTAR"].astype(str).str.lower().eq("cerrado")
+    ) | bajas["ESTADO_CTAR"].astype(str).str.lower().isin(["cerrado", "finalizado"])
 
     activos = bajas[~cerrado].copy()
 
@@ -1630,6 +1705,25 @@ elif page == "Seguimiento CTAR":
         hide_index=True,
         column_config=column_config_hospital(),
     )
+
+    st.markdown("---")
+    st.markdown("## 🎯 Casos programados para Mesa CTAR")
+    mesa_hospital = activos[activos["EN_MESA_CTAR"].astype(str).str.lower().isin(["sí", "si", "s", "true", "1", "x", "checked"])].copy()
+    columnas_mesa_hospital = [
+        "SIC", "NOMBRE_EQUIPO", "Serie", "Inventario", "PRIORIDAD_HOSPITAL",
+        "ESTADO_CTAR", "SEMANA_MESA_CTAR", "FECHA_MESA_CTAR",
+        "OBSERVACION_MESA_CTAR", "ACUERDO_MESA_CTAR"
+    ]
+    if mesa_hospital.empty:
+        st.info("Aún no hay casos programados para Mesa CTAR.")
+    else:
+        st.metric("Casos en Mesa CTAR", len(mesa_hospital))
+        st.dataframe(
+            preparar_dataframe_streamlit(mesa_hospital[[c for c in columnas_mesa_hospital if c in mesa_hospital.columns]]),
+            use_container_width=True,
+            hide_index=True,
+            column_config=column_config_hospital(),
+        )
 
     st.info("Esta vista es solo de consulta. El Hospital no puede modificar información desde este perfil.")
 
