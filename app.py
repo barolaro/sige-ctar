@@ -1185,35 +1185,287 @@ elif page == "Repositorio Documental":
         st.code(str(e))
 
 elif page == "Reserva Presupuestaria":
-    header("Reserva Presupuestaria", "Dashboard ejecutivo del Anexo I f) · Fondo de reserva y gastos durante la explotación.")
+    header(
+        "Reserva Presupuestaria",
+        "Panel ejecutivo del Anexo I f) · Fondo de reserva, desembolsos, montos en revisión y diferencia proyectada.",
+    )
+
+    def uf_fmt(valor):
+        try:
+            return f"{float(valor):,.2f} UF".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            return "0,00 UF"
+
+    def num_fmt(valor):
+        try:
+            return f"{float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            return "0,00"
+
+    def pct_fmt(valor):
+        try:
+            return f"{float(valor):,.1f}%".replace(".", ",")
+        except Exception:
+            return "0,0%"
+
+    def comentario_financiero(diferencia, porcentaje_uso, revision, saldo):
+        if diferencia < 0 and porcentaje_uso >= 80:
+            return (
+                "🔴 **Situación crítica:** la diferencia proyectada consolidada es negativa y el nivel de uso del fondo es elevado. "
+                "Se recomienda mantener control estricto de nuevos compromisos, priorizar los casos críticos y revisar la programación financiera antes de aprobar nuevos desembolsos."
+            )
+        if diferencia < 0:
+            return (
+                "🟠 **Situación de atención:** existe una diferencia proyectada negativa. "
+                "Corresponde revisar los desembolsos registrados, validar los montos en revisión y priorizar las necesidades de mayor impacto operativo."
+            )
+        if revision > 0:
+            return (
+                "🟡 **Situación en seguimiento:** el fondo presenta saldo estimado controlado, pero existen montos en revisión que podrían modificar la disponibilidad final. "
+                "Se recomienda actualizar periódicamente los antecedentes y mantener seguimiento de los casos pendientes de validación."
+            )
+        if saldo < 0:
+            return (
+                "🟠 **Situación de atención:** el saldo estimado aparece negativo. "
+                "Se recomienda revisar consistencia de los montos registrados y contrastar con la documentación de respaldo."
+            )
+        return (
+            "🟢 **Situación controlada:** no se observan diferencias negativas relevantes y el uso del fondo se mantiene dentro de parámetros razonables."
+        )
+
+    def estado_anual(row):
+        dif = float(row.get("Diferencia proyectada", 0) or 0)
+        rev = float(row.get("En revisión desembolsos", 0) or 0)
+        if dif < 0 and rev > 0:
+            return "Crítico con revisión"
+        if dif < 0:
+            return "Déficit proyectado"
+        if rev > 0:
+            return "En revisión"
+        return "Controlado"
+
     try:
         df_raw = load_reserva_presupuestaria()
+
+        if df_raw.empty:
+            st.info("No se encontraron datos en la hoja Anexo I f).")
+            st.stop()
+
         tabla = df_raw.iloc[22:30, 1:9].copy()
-        tabla.columns = ["Año", "Suplemento", "VMA", "Total general", "VMA año explotación", "Desembolsos explotación", "En revisión desembolsos", "Diferencia proyectada"]
+        tabla.columns = [
+            "Año",
+            "Suplemento",
+            "VMA",
+            "Total general",
+            "VMA año explotación",
+            "Desembolsos explotación",
+            "En revisión desembolsos",
+            "Diferencia proyectada",
+        ]
+
         tabla = tabla.dropna(how="all")
         tabla = tabla[tabla["Año"].astype(str).str.strip() != ""]
-        columnas_uf = ["Suplemento", "VMA", "Total general", "VMA año explotación", "Desembolsos explotación", "En revisión desembolsos", "Diferencia proyectada"]
+
+        columnas_uf = [
+            "Suplemento",
+            "VMA",
+            "Total general",
+            "VMA año explotación",
+            "Desembolsos explotación",
+            "En revisión desembolsos",
+            "Diferencia proyectada",
+        ]
+
         for col in columnas_uf:
             tabla[col] = tabla[col].apply(clean_number).fillna(0)
-        fila_total = tabla[tabla["Año"].astype(str).str.contains("Total", case=False, na=False)]
-        tabla_anios = tabla[~tabla["Año"].astype(str).str.contains("Total", case=False, na=False)].copy()
+
+        fila_total = tabla[
+            tabla["Año"].astype(str).str.contains("Total", case=False, na=False)
+        ]
+
+        tabla_anios = tabla[
+            ~tabla["Año"].astype(str).str.contains("Total", case=False, na=False)
+        ].copy()
+
+        if fila_total.empty:
+            fila_total = pd.DataFrame([{
+                "VMA año explotación": tabla_anios["VMA año explotación"].sum(),
+                "Desembolsos explotación": tabla_anios["Desembolsos explotación"].sum(),
+                "En revisión desembolsos": tabla_anios["En revisión desembolsos"].sum(),
+                "Diferencia proyectada": tabla_anios["Diferencia proyectada"].sum(),
+            }])
+
         total_vma = fila_total["VMA año explotación"].sum()
         total_desembolsos = fila_total["Desembolsos explotación"].sum()
         total_revision = fila_total["En revisión desembolsos"].sum()
         diferencia = fila_total["Diferencia proyectada"].sum()
-        porcentaje_usado = ((total_desembolsos + total_revision) / total_vma) * 100 if total_vma > 0 else 0
         saldo_disponible = total_vma - total_desembolsos - total_revision
-        c1, c2, c3 = st.columns(3)
-        with c1: st.metric("Fondo VMA explotación", f"{total_vma:,.2f} UF")
-        with c2: st.metric("Total desembolsado", f"{total_desembolsos:,.2f} UF")
-        with c3: st.metric("Saldo disponible estimado", f"{saldo_disponible:,.2f} UF")
-        st.progress(min(max(porcentaje_usado / 100, 0), 1))
-        st.dataframe(preparar_dataframe_streamlit(tabla), use_container_width=True, hide_index=True)
-        grafico_base = tabla_anios.melt(id_vars="Año", value_vars=["VMA año explotación", "Desembolsos explotación", "En revisión desembolsos"], var_name="Concepto", value_name="UF")
-        fig = px.bar(grafico_base, x="Año", y="UF", color="Concepto", barmode="group", text_auto=",.0f")
+
+        uso_estimado = 0
+        if total_vma > 0:
+            uso_estimado = ((total_desembolsos + total_revision) / total_vma) * 100
+
+        st.markdown("## 📌 Resumen ejecutivo financiero")
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("Fondo VMA explotación", uf_fmt(total_vma))
+        with c2:
+            st.metric("Desembolsado", uf_fmt(total_desembolsos))
+        with c3:
+            st.metric("En revisión", uf_fmt(total_revision))
+        with c4:
+            st.metric("Saldo estimado", uf_fmt(saldo_disponible))
+
+        c5, c6, c7 = st.columns(3)
+        with c5:
+            st.metric("Diferencia proyectada", uf_fmt(diferencia))
+        with c6:
+            st.metric("Uso estimado del fondo", pct_fmt(uso_estimado))
+        with c7:
+            st.metric("Años con déficit", int((tabla_anios["Diferencia proyectada"] < 0).sum()))
+
+        st.markdown("### Nivel de uso estimado del fondo")
+        st.progress(min(max(uso_estimado / 100, 0), 1))
+        st.caption(
+            f"Uso estimado: **{pct_fmt(uso_estimado)}**, considerando desembolsos ejecutados y montos en revisión."
+        )
+
+        st.markdown("---")
+
+        comentario = comentario_financiero(diferencia, uso_estimado, total_revision, saldo_disponible)
+        if diferencia < 0 or saldo_disponible < 0:
+            st.error(comentario)
+        elif total_revision > 0:
+            st.warning(comentario)
+        else:
+            st.success(comentario)
+
+        st.markdown("## 🧾 Lectura ejecutiva automática")
+        st.info(
+            f"""
+            El fondo VMA de explotación asciende a **{uf_fmt(total_vma)}**.  
+            A la fecha, se registran desembolsos por **{uf_fmt(total_desembolsos)}** y montos en revisión por **{uf_fmt(total_revision)}**.  
+            El saldo disponible estimado corresponde a **{uf_fmt(saldo_disponible)}**, con un uso aproximado del fondo de **{pct_fmt(uso_estimado)}**.  
+
+            La diferencia proyectada consolidada corresponde a **{uf_fmt(diferencia)}**.
+            """
+        )
+
+        st.markdown("---")
+        st.markdown("## 📊 Análisis por año de explotación")
+
+        tabla_vista = tabla.copy()
+        tabla_vista["Estado financiero"] = tabla_vista.apply(estado_anual, axis=1)
+        for col in columnas_uf:
+            tabla_vista[col] = tabla_vista[col].apply(uf_fmt)
+
+        st.dataframe(
+            preparar_dataframe_streamlit(tabla_vista),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("---")
+        st.markdown("## 📈 Comparativo financiero por año")
+
+        grafico_base = tabla_anios.melt(
+            id_vars="Año",
+            value_vars=[
+                "VMA año explotación",
+                "Desembolsos explotación",
+                "En revisión desembolsos",
+            ],
+            var_name="Concepto",
+            value_name="UF",
+        )
+
+        fig = px.bar(
+            grafico_base,
+            x="Año",
+            y="UF",
+            color="Concepto",
+            barmode="group",
+            text_auto=",.0f",
+            title="VMA, desembolsos y montos en revisión por año de explotación",
+        )
+        fig.update_layout(
+            height=520,
+            xaxis_title="Año de explotación",
+            yaxis_title="Monto UF",
+            legend_title="Concepto",
+            title_x=0.02,
+            bargap=0.25,
+        )
         st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("## 🔎 Diferencia proyectada por año")
+        fig2 = px.bar(
+            tabla_anios,
+            x="Año",
+            y="Diferencia proyectada",
+            text="Diferencia proyectada",
+            title="Diferencia proyectada respecto del fondo de reserva",
+        )
+        fig2.update_traces(
+            texttemplate="%{text:,.0f} UF",
+            textposition="outside",
+        )
+        fig2.update_layout(
+            height=500,
+            xaxis_title="Año de explotación",
+            yaxis_title="Diferencia proyectada UF",
+            title_x=0.02,
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("## 📌 Comentarios automáticos por año")
+
+        comentarios = []
+        for _, row in tabla_anios.iterrows():
+            anio = row.get("Año", "")
+            dif = float(row.get("Diferencia proyectada", 0) or 0)
+            rev = float(row.get("En revisión desembolsos", 0) or 0)
+            desemb = float(row.get("Desembolsos explotación", 0) or 0)
+            vma = float(row.get("VMA año explotación", 0) or 0)
+
+            if dif < 0:
+                texto = "Presenta diferencia proyectada negativa; requiere seguimiento financiero y revisión de respaldo."
+            elif rev > 0:
+                texto = "Presenta montos en revisión; el resultado puede variar según la validación de antecedentes."
+            elif desemb > 0 and vma > 0:
+                texto = "Presenta desembolsos registrados dentro del período; mantener control documental."
+            else:
+                texto = "Sin observaciones financieras relevantes para el período."
+
+            comentarios.append({
+                "Año": anio,
+                "VMA año explotación": uf_fmt(vma),
+                "Desembolsos": uf_fmt(desemb),
+                "En revisión": uf_fmt(rev),
+                "Diferencia proyectada": uf_fmt(dif),
+                "Comentario ejecutivo": texto,
+            })
+
+        st.dataframe(
+            preparar_dataframe_streamlit(pd.DataFrame(comentarios)),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        with st.expander("📄 Ver planilla original completa"):
+            st.dataframe(
+                preparar_dataframe_streamlit(df_raw),
+                use_container_width=True,
+                hide_index=True,
+            )
+
     except Exception as e:
         st.error("No se pudo cargar la Reserva Presupuestaria.")
+        st.warning(
+            "Verifica que el archivo sea .xlsx, que la hoja exista y que la cuenta de servicio tenga permisos de lectura."
+        )
         st.code(str(e))
 
 elif page == "Alertas":
