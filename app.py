@@ -568,6 +568,43 @@ def clean_number(value):
     return pd.to_numeric(value, errors="coerce")
 
 
+# =========================
+# UTILIDADES DATAFRAME STREAMLIT
+# =========================
+
+def resolver_columnas_duplicadas(df_in):
+    """Evita errores de PyArrow/Streamlit cuando existen columnas repetidas."""
+    df_tmp = df_in.copy()
+    if not df_tmp.columns.duplicated().any():
+        return df_tmp
+
+    resultado = pd.DataFrame(index=df_tmp.index)
+    for col in dict.fromkeys(df_tmp.columns):
+        iguales = df_tmp.loc[:, df_tmp.columns == col]
+        if iguales.shape[1] == 1:
+            resultado[col] = iguales.iloc[:, 0]
+        else:
+            combinado = (
+                iguales.astype(str)
+                .replace({"nan": "", "None": "", "NaT": ""})
+                .replace("", pd.NA)
+                .bfill(axis=1)
+                .iloc[:, 0]
+                .fillna("")
+            )
+            resultado[col] = combinado
+    return resultado
+
+
+def preparar_dataframe_streamlit(df_in):
+    """Deja el dataframe seguro para st.dataframe y st.data_editor."""
+    df_tmp = resolver_columnas_duplicadas(df_in.copy())
+    df_tmp = df_tmp.fillna("")
+    for col in df_tmp.columns:
+        df_tmp[col] = df_tmp[col].astype(str).replace({"nan": "", "None": "", "NaT": ""})
+    return df_tmp.reset_index(drop=True)
+
+
 
 
 # =========================
@@ -945,37 +982,21 @@ elif page == "Bajas":
 
         # Compatibilidad con nombres que han aparecido en versiones anteriores.
         alias = {
-            # Encabezados oficiales / variantes
             "CARTA": "CARTA_SC",
-            "CARTA_SC": "CARTA_SC",
             "FECHA_CA": "FECHA_CARTA",
             "FECHA_CARTA_SC": "FECHA_CARTA",
             "OBSERVACION_AIF": "Observacion_AIF",
             "PRESENTADA_A_CTAR": "Presentada_a_CTAR",
             "PRESENTA_CTAR": "Presentada_a_CTAR",
             "JUSTIFICACION_PRIORIDAD": "JUSTIFICACION_HOSPITAL",
-            "JUSTIFICACIÓN_HOSPITAL": "JUSTIFICACION_HOSPITAL",
             "PRIORIDAD": "PRIORIDAD_HOSPITAL",
-
-            # Compatibilidad con el modelo antiguo de FACT_BAJAS
-            "ID_Baja": "CARTA_SC",
-            "ID_BAJA": "CARTA_SC",
-            "ID_CTAR": "CTAR",
-            "Fecha_Baja": "FECHA_CARTA",
-            "FECHA_BAJA": "FECHA_CARTA",
-            "Equipo": "NOMBRE_EQUIPO",
-            "EQUIPO": "NOMBRE_EQUIPO",
-            "Nro_Inventario": "Inventario",
-            "NRO_INVENTARIO": "Inventario",
-            "Motivo_Baja": "Causal",
-            "MOTIVO_BAJA": "Causal",
-            "Estado_Baja": "Estado",
-            "ESTADO_BAJA": "Estado",
         }
 
         for origen, destino in alias.items():
             if origen in out.columns and destino not in out.columns:
                 out.rename(columns={origen: destino}, inplace=True)
+
+        out = resolver_columnas_duplicadas(out)
 
         columnas_finales = COLUMNAS_BASE_BAJAS + COLUMNAS_CONTROL_BAJAS
 
@@ -1269,7 +1290,7 @@ elif page == "Bajas":
         columnas_envio = COLUMNAS_BASE_BAJAS + COLUMNAS_HOSPITAL_BAJAS
         vista_envio = bajas[[c for c in columnas_envio if c in bajas.columns]].copy()
         st.dataframe(
-            vista_envio,
+            preparar_dataframe_streamlit(vista_envio),
             use_container_width=True,
             hide_index=True,
             column_config=column_config_bajas(),
@@ -1300,7 +1321,7 @@ elif page == "Bajas":
                 st.success("Planilla procesada correctamente. Revisa la vista previa antes de guardar.")
 
                 st.dataframe(
-                    actualizada,
+                    preparar_dataframe_streamlit(actualizada),
                     use_container_width=True,
                     hide_index=True,
                     column_config=column_config_bajas(),
@@ -1473,36 +1494,20 @@ elif page == "Seguimiento CTAR":
         out.columns = [limpiar_nombre_columna(c) for c in out.columns]
 
         alias = {
-            # Encabezados oficiales / variantes
             "CARTA": "CARTA_SC",
-            "CARTA_SC": "CARTA_SC",
             "FECHA_CA": "FECHA_CARTA",
             "FECHA_CARTA_SC": "FECHA_CARTA",
             "OBSERVACION_AIF": "Observacion_AIF",
             "PRESENTADA_A_CTAR": "Presentada_a_CTAR",
             "PRESENTA_CTAR": "Presentada_a_CTAR",
             "JUSTIFICACION_PRIORIDAD": "JUSTIFICACION_HOSPITAL",
-            "JUSTIFICACIÓN_HOSPITAL": "JUSTIFICACION_HOSPITAL",
-
-            # Compatibilidad con el modelo antiguo de FACT_BAJAS
-            "ID_Baja": "CARTA_SC",
-            "ID_BAJA": "CARTA_SC",
-            "ID_CTAR": "CTAR",
-            "Fecha_Baja": "FECHA_CARTA",
-            "FECHA_BAJA": "FECHA_CARTA",
-            "Equipo": "NOMBRE_EQUIPO",
-            "EQUIPO": "NOMBRE_EQUIPO",
-            "Nro_Inventario": "Inventario",
-            "NRO_INVENTARIO": "Inventario",
-            "Motivo_Baja": "Causal",
-            "MOTIVO_BAJA": "Causal",
-            "Estado_Baja": "Estado",
-            "ESTADO_BAJA": "Estado",
         }
 
         for origen, destino in alias.items():
             if origen in out.columns and destino not in out.columns:
                 out.rename(columns={origen: destino}, inplace=True)
+
+        out = resolver_columnas_duplicadas(out)
 
         columnas = COLUMNAS_BASE_BAJAS + COLUMNAS_HOSPITAL_BAJAS + COLUMNAS_CTAR_VISIBLE + ["CERRADO"]
         for col in columnas:
@@ -1620,7 +1625,7 @@ elif page == "Seguimiento CTAR":
         vista_hospital = vista_hospital[mask]
 
     st.dataframe(
-        vista_hospital,
+        preparar_dataframe_streamlit(vista_hospital),
         use_container_width=True,
         hide_index=True,
         column_config=column_config_hospital(),
