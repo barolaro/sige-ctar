@@ -603,24 +603,33 @@ with st.sidebar:
     st.caption(f"Usuario: {user['name']}")
     st.caption(f"Rol: {user['role']}")
 
-    pages = [
-        "Resumen Ejecutivo",
-        "Seguimiento",
-        "Bajas",
-        "Reposiciones",
-        "Adquisiciones",
-        "Repositorio Documental",
-        "Reserva Presupuestaria",
-    ]
+    if role() == "hospital":
+        pages = [
+            "Resumen Ejecutivo",
+            "Seguimiento CTAR",
+            "Repositorio Documental",
+            "Reserva Presupuestaria",
+        ]
+    else:
+        pages = [
+            "Resumen Ejecutivo",
+            "Seguimiento",
+            "Bajas",
+            "Priorización Hospital",
+            "Gestión CTAR",
+            "Histórico CTAR",
+            "Reposiciones",
+            "Adquisiciones",
+            "Repositorio Documental",
+            "Reserva Presupuestaria",
+            "Alertas",
+        ]
 
-    if role() != "hospital":
-        pages.append("Alertas")
+        if can_edit():
+            pages.append("Registro")
 
-    if can_edit():
-        pages.append("Registro")
-
-    if role() == "admin":
-        pages.append("Configuración")
+        if role() == "admin":
+            pages.append("Configuración")
 
     page = st.radio("Menú", pages)
 
@@ -1241,6 +1250,110 @@ elif page == "Bajas":
                 st.info("Aún no hay histórico CTAR.")
             else:
                 st.dataframe(historico_existente, use_container_width=True, hide_index=True)
+
+
+
+elif page == "Seguimiento CTAR":
+    header(
+        "Seguimiento CTAR",
+        "Vista de solo lectura para Hospital: prioridades informadas y avance de gestión CTAR.",
+    )
+
+    bajas = tables.get("FACT_BAJAS", pd.DataFrame()).copy()
+
+    if bajas.empty:
+        st.info("No hay registros disponibles para seguimiento CTAR.")
+        st.stop()
+
+    bajas = normalize_text_columns(bajas)
+
+    # Solo casos activos para hospital
+    activos, historico_auto = separar_activos_historico(bajas)
+
+    if activos.empty:
+        st.success("No hay casos activos pendientes.")
+        st.stop()
+
+    activos["ORDEN_PRIORIDAD"] = activos["PRIORIDAD_HOSPITAL"].apply(orden_prioridad)
+    activos = activos.sort_values(["ORDEN_PRIORIDAD"]).drop(columns=["ORDEN_PRIORIDAD"])
+
+    st.markdown("## 📌 Resumen de seguimiento")
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    with c1:
+        st.metric("Casos activos", len(activos))
+
+    with c2:
+        st.metric(
+            "🔴 Rojas",
+            int(activos["PRIORIDAD_HOSPITAL"].astype(str).str.contains("Roja", na=False).sum()),
+        )
+
+    with c3:
+        st.metric(
+            "🟠 Naranjo",
+            int(activos["PRIORIDAD_HOSPITAL"].astype(str).str.contains("Naranjo", na=False).sum()),
+        )
+
+    with c4:
+        st.metric(
+            "🟡 Amarillo",
+            int(activos["PRIORIDAD_HOSPITAL"].astype(str).str.contains("Amarillo", na=False).sum()),
+        )
+
+    with c5:
+        st.metric(
+            "🟢 Verde",
+            int(activos["PRIORIDAD_HOSPITAL"].astype(str).str.contains("Verde", na=False).sum()),
+        )
+
+    st.markdown("---")
+
+    st.markdown("## 👀 Avance de gestión CTAR")
+
+    columnas_hospital = [
+        "ID_Baja",
+        "ID_CTAR",
+        "SIC",
+        "Equipo",
+        "Nro_Inventario",
+        "Servicio",
+        "Motivo_Baja",
+        "Estado_Baja",
+        "Fecha_Baja",
+        "PRIORIDAD_HOSPITAL",
+        "JUSTIFICACION_PRIORIDAD",
+        "ESTADO_CTAR",
+        "FECHA_ULTIMA_GESTION",
+        "GESTION_CTAR",
+    ]
+
+    columnas_disponibles = [c for c in columnas_hospital if c in activos.columns]
+
+    vista_hospital = activos[columnas_disponibles].copy()
+
+    search = st.text_input("Buscar por CTAR, SIC, equipo o servicio")
+
+    if search:
+        s = search.lower()
+        mask = pd.Series(False, index=vista_hospital.index)
+
+        for col in ["ID_Baja", "ID_CTAR", "SIC", "Equipo", "Nro_Inventario", "Servicio", "Motivo_Baja"]:
+            if col in vista_hospital.columns:
+                mask = mask | vista_hospital[col].astype(str).str.lower().str.contains(s, na=False)
+
+        vista_hospital = vista_hospital[mask]
+
+    st.dataframe(
+        vista_hospital.style.apply(color_prioridad_row, axis=1),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.info(
+        "Esta vista es solo de consulta. La gestión, cierre e histórico son administrados por el perfil CTAR/Administrador."
+    )
 
 
 elif page == "Reposiciones":
