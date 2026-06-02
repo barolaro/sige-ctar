@@ -761,268 +761,402 @@ elif page == "Seguimiento":
 elif page == "Bajas":
     header(
         "Bajas y Priorización Hospital",
-        "Carga simple de planilla hospitalaria, priorización por colores, gestión CTAR y traspaso a histórico.",
+        "Flujo simple: CTAR descarga planilla, Hospital prioriza, CTAR carga respuesta, gestiona y cierra casos.",
     )
 
-    PRIORIDADES = ["🔴 Roja", "🟠 Naranjo", "🟡 Amarilla", "🟢 Verde"]
-    ESTADOS_CTAR = ["Pendiente", "En gestión", "En revisión", "Resuelto", "Cerrado"]
+    PRIORIDADES_CTAR = ["🔴 Roja", "🟠 Naranjo", "🟡 Amarilla", "🟢 Verde"]
+    ESTADOS_CTAR = [
+        "Pendiente",
+        "En gestión",
+        "Requiere antecedentes",
+        "Compra iniciada",
+        "OC emitida",
+        "Recepcionado",
+        "Cerrado",
+    ]
 
-    def normalizar_columnas_bajas(dataframe):
-        dataframe = dataframe.copy()
-        dataframe.columns = [str(c).strip() for c in dataframe.columns]
+    COLUMNAS_HOSPITAL = [
+        "PRIORIDAD_HOSPITAL",
+        "JUSTIFICACION_PRIORIDAD",
+    ]
 
-        columnas_necesarias = {
-            "PRIORIDAD_HOSPITAL": "",
-            "JUSTIFICACION_PRIORIDAD": "",
-            "GESTION_CTAR": "",
-            "FECHA_ULTIMA_GESTION": "",
-            "ESTADO_CTAR": "Pendiente",
-            "CERRADO": "No",
-            "FECHA_CIERRE": "",
-        }
+    COLUMNAS_CTAR = [
+        "GESTION_CTAR",
+        "FECHA_ULTIMA_GESTION",
+        "ESTADO_CTAR",
+        "CERRADO",
+        "FECHA_CIERRE",
+        "OBSERVACION_CIERRE",
+    ]
 
-        for col, default in columnas_necesarias.items():
-            if col not in dataframe.columns:
-                dataframe[col] = default
+    COLUMNAS_CONTROL = COLUMNAS_HOSPITAL + COLUMNAS_CTAR
 
-        dataframe["PRIORIDAD_HOSPITAL"] = dataframe["PRIORIDAD_HOSPITAL"].replace("", "🟡 Amarilla")
-        dataframe["ESTADO_CTAR"] = dataframe["ESTADO_CTAR"].replace("", "Pendiente")
-        dataframe["CERRADO"] = dataframe["CERRADO"].replace("", "No")
+    def normalizar_bajas(dataframe):
+        out = dataframe.copy()
+        out.columns = [str(c).strip().replace(" ", "_") for c in out.columns]
 
-        return dataframe
+        for col in COLUMNAS_CONTROL:
+            if col not in out.columns:
+                out[col] = ""
 
-    def orden_prioridad(valor):
-        valor = str(valor)
-        if "🔴" in valor or "Roja" in valor:
+        for col in COLUMNAS_CONTROL:
+            out[col] = out[col].fillna("").astype(str)
+            out[col] = out[col].replace({"nan": "", "None": ""})
+
+        out["ESTADO_CTAR"] = out["ESTADO_CTAR"].replace("", "Pendiente")
+        out["CERRADO"] = out["CERRADO"].replace(
+            {
+                "": "No",
+                "False": "No",
+                "false": "No",
+                "0": "No",
+                "True": "Sí",
+                "true": "Sí",
+                "1": "Sí",
+            }
+        )
+
+        return out
+
+    def orden_prioridad_baja(valor):
+        v = str(valor).lower()
+        if "roja" in v or "rojo" in v or "🔴" in v:
             return 1
-        if "🟠" in valor or "Naranjo" in valor:
+        if "naranjo" in v or "naranja" in v or "🟠" in v:
             return 2
-        if "🟡" in valor or "Amarilla" in valor:
+        if "amarilla" in v or "amarillo" in v or "🟡" in v:
             return 3
-        if "🟢" in valor or "Verde" in valor:
+        if "verde" in v or "🟢" in v:
             return 4
-        return 5
+        return 9
 
-    def color_prioridad_bajas(row):
-        prioridad = str(row.get("PRIORIDAD_HOSPITAL", ""))
+    def color_fila_prioridad(row):
+        p = str(row.get("PRIORIDAD_HOSPITAL", "")).lower()
         cerrado = str(row.get("CERRADO", "")).lower()
 
         if cerrado in ["sí", "si", "true", "1", "cerrado"]:
-            return ["background-color: #D9E1F2; color: #1F4E78"] * len(row)
-
-        if "🔴" in prioridad or "Roja" in prioridad:
-            return ["background-color: #F4CCCC; color: #7F1D1D; font-weight: bold"] * len(row)
-
-        if "🟠" in prioridad or "Naranjo" in prioridad:
-            return ["background-color: #FCE4D6; color: #7C2D12"] * len(row)
-
-        if "🟡" in prioridad or "Amarilla" in prioridad:
-            return ["background-color: #FFF2CC; color: #78350F"] * len(row)
-
-        if "🟢" in prioridad or "Verde" in prioridad:
-            return ["background-color: #D9EAD3; color: #14532D"] * len(row)
-
+            return ["background-color: #dbeafe; color: #1e3a8a"] * len(row)
+        if "roja" in p or "rojo" in p or "🔴" in p:
+            return ["background-color: #fee2e2; color: #7f1d1d; font-weight: bold"] * len(row)
+        if "naranjo" in p or "naranja" in p or "🟠" in p:
+            return ["background-color: #ffedd5; color: #7c2d12; font-weight: bold"] * len(row)
+        if "amarilla" in p or "amarillo" in p or "🟡" in p:
+            return ["background-color: #fef9c3; color: #713f12"] * len(row)
+        if "verde" in p or "🟢" in p:
+            return ["background-color: #dcfce7; color: #14532d"] * len(row)
         return [""] * len(row)
 
-    def generar_excel_salida(df_activos, df_historico):
+    def escribir_hoja(sheet_name, df_out):
+        creds = get_credentials()
+        client = gspread.authorize(creds)
+        spreadsheet_id = st.secrets["google_sheet"]["spreadsheet_id"]
+        spreadsheet = client.open_by_key(spreadsheet_id)
+
+        try:
+            worksheet = spreadsheet.worksheet(sheet_name)
+        except Exception:
+            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=80)
+
+        df_save = df_out.copy().fillna("")
+        worksheet.clear()
+        worksheet.update(
+            [df_save.columns.tolist()] + df_save.astype(str).values.tolist(),
+            value_input_option="USER_ENTERED",
+        )
+        st.cache_data.clear()
+
+    def crear_planilla_hospital(df_bajas):
+        base = normalizar_bajas(df_bajas)
+
+        columnas_base = [
+            "ID_Baja",
+            "ID_CTAR",
+            "SIC",
+            "Equipo",
+            "Nro_Inventario",
+            "Servicio",
+            "Motivo_Baja",
+            "Estado_Baja",
+            "Fecha_Baja",
+        ]
+
+        columnas_existentes = [c for c in columnas_base if c in base.columns]
+        salida = base[columnas_existentes + COLUMNAS_HOSPITAL].copy()
+
+        matriz = pd.DataFrame(
+            {
+                "Prioridad": [1, 2, 3, 4],
+                "Color": ["🔴 Roja", "🟠 Naranjo", "🟡 Amarilla", "🟢 Verde"],
+                "Categoría": [
+                    "Crítico / Muy Urgente",
+                    "Alta Prioridad / Urgente",
+                    "Prioridad Media",
+                    "Prioridad Baja",
+                ],
+                "Criterio de Priorización": [
+                    "La ausencia del equipamiento impacta directamente la continuidad de la atención clínica.",
+                    "La falta del equipamiento genera limitaciones relevantes en la capacidad operativa del servicio clínico.",
+                    "La ausencia del equipamiento no detiene la prestación, pero afecta eficiencia, tiempos o continuidad operativa.",
+                    "La falta del equipamiento no genera impacto significativo en la continuidad asistencial.",
+                ],
+            }
+        )
+
         output = BytesIO()
 
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df_activos.to_excel(writer, sheet_name="Casos_Activos_CTAR", index=False)
-            df_historico.to_excel(writer, sheet_name="Historico_CTAR", index=False)
+            salida.to_excel(writer, index=False, sheet_name="Priorizacion_Hospital")
+            matriz.to_excel(writer, index=False, sheet_name="Matriz_Prioridad")
+
+            wb = writer.book
+            ws = wb["Priorizacion_Hospital"]
+            wm = wb["Matriz_Prioridad"]
+
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.worksheet.datavalidation import DataValidation
+
+            header_fill = PatternFill("solid", fgColor="1F4E78")
+            header_font = Font(color="FFFFFF", bold=True)
+            thin = Side(style="thin", color="D9E2F3")
+            border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.border = border
+
+            for row in ws.iter_rows():
+                for cell in row:
+                    cell.border = border
+                    cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
+
+            for col in ws.columns:
+                max_len = 0
+                letter = col[0].column_letter
+                for cell in col:
+                    max_len = max(max_len, len(str(cell.value or "")))
+                ws.column_dimensions[letter].width = min(max(max_len + 2, 14), 40)
+
+            prioridad_col = None
+            for idx, cell in enumerate(ws[1], start=1):
+                if cell.value == "PRIORIDAD_HOSPITAL":
+                    prioridad_col = idx
+                    break
+
+            if prioridad_col:
+                col_letter = ws.cell(row=1, column=prioridad_col).column_letter
+                dv = DataValidation(
+                    type="list",
+                    formula1='"🔴 Roja,🟠 Naranjo,🟡 Amarilla,🟢 Verde"',
+                    allow_blank=True,
+                )
+                ws.add_data_validation(dv)
+                dv.add(f"{col_letter}2:{col_letter}1000")
+
+            colores = {
+                "🔴 Roja": "FF0000",
+                "🟠 Naranjo": "F4B183",
+                "🟡 Amarilla": "FFFF00",
+                "🟢 Verde": "00B050",
+            }
+
+            for cell in wm[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", wrap_text=True)
+                cell.border = border
+
+            for i, row in enumerate(wm.iter_rows(min_row=2), start=2):
+                color = wm.cell(i, 2).value
+                fill = PatternFill("solid", fgColor=colores.get(color, "FFFFFF"))
+                for cell in row:
+                    cell.fill = fill
+                    cell.border = border
+                    cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+            for col in wm.columns:
+                max_len = 0
+                letter = col[0].column_letter
+                for cell in col:
+                    max_len = max(max_len, len(str(cell.value or "")))
+                wm.column_dimensions[letter].width = min(max(max_len + 2, 14), 70)
 
         output.seek(0)
-        return output
+        return output.getvalue()
 
-    st.markdown("## 1️⃣ Cargar planilla priorizada por Hospital")
+    def actualizar_prioridad(base_df, respuesta_df):
+        base = normalizar_bajas(base_df)
+        resp = respuesta_df.copy()
+        resp.columns = [str(c).strip().replace(" ", "_") for c in resp.columns]
+        resp = normalizar_bajas(resp)
 
-    st.info(
-        "El Hospital completa solamente las columnas PRIORIDAD_HOSPITAL y JUSTIFICACION_PRIORIDAD. "
-        "Luego CTAR carga el archivo, trabaja la gestión y marca CERRADO = Sí cuando el caso termina."
-    )
+        key = None
+        for candidate in ["ID_Baja", "ID_CTAR", "SIC"]:
+            if candidate in base.columns and candidate in resp.columns:
+                key = candidate
+                break
 
-    archivo_hospital = st.file_uploader(
-        "Subir planilla Excel del Hospital",
-        type=["xlsx"],
-        help="Debe corresponder a la planilla simple de priorización de bajas CTAR.",
-    )
+        if key is None:
+            raise ValueError("No se encontró llave común. La planilla debe mantener ID_Baja, ID_CTAR o SIC.")
 
-    if archivo_hospital is None:
-        st.warning("Sube la planilla del Hospital para iniciar la gestión CTAR.")
+        resp_small = resp[[key] + COLUMNAS_HOSPITAL].drop_duplicates(subset=[key], keep="last")
+        merged = base.merge(resp_small, on=key, how="left", suffixes=("", "_NUEVO"))
+
+        for col in COLUMNAS_HOSPITAL:
+            nuevo = f"{col}_NUEVO"
+            if nuevo in merged.columns:
+                merged[col] = merged[nuevo].where(
+                    merged[nuevo].astype(str).str.strip() != "",
+                    merged[col],
+                )
+                merged.drop(columns=[nuevo], inplace=True)
+
+        return normalizar_bajas(merged)
+
+    def separar_activos_historico(df_gestion):
+        data = normalizar_bajas(df_gestion)
+        cerrado = data["CERRADO"].astype(str).str.lower().isin(
+            ["sí", "si", "s", "true", "1", "cerrado"]
+        ) | data["ESTADO_CTAR"].astype(str).str.lower().eq("cerrado")
+
+        historico = data[cerrado].copy()
+        activos = data[~cerrado].copy()
+
+        if not historico.empty:
+            hoy = date.today().isoformat()
+            historico["FECHA_CIERRE"] = historico["FECHA_CIERRE"].replace("", hoy)
+            historico["FECHA_PASO_HISTORICO"] = hoy
+
+        return activos, historico
+
+    bajas = tables.get("FACT_BAJAS", pd.DataFrame()).copy()
+
+    if bajas.empty:
+        st.info("No hay registros en FACT_BAJAS.")
         st.stop()
 
-    try:
-        try:
-            df_hospital = pd.read_excel(
-                archivo_hospital,
-                sheet_name="Priorizacion_Hospital",
-                header=2,
-                engine="openpyxl",
-            )
-        except Exception:
-            archivo_hospital.seek(0)
-            df_hospital = pd.read_excel(
-                archivo_hospital,
-                sheet_name=0,
-                header=2,
-                engine="openpyxl",
-            )
+    bajas = normalizar_bajas(bajas)
 
-        df_hospital = df_hospital.dropna(how="all")
-        df_hospital = normalizar_columnas_bajas(df_hospital)
-
-        # Eliminar filas vacías reales, manteniendo solo casos con CTAR, SIC, equipo o inventario.
-        columnas_base = [
-            c for c in ["CTAR", "SIC", "NOMBRE EQUIPO", "N° INVENTARIO", "DETALLE"]
-            if c in df_hospital.columns
+    tab1, tab2, tab3 = st.tabs(
+        [
+            "📤 Enviar a Hospital",
+            "📥 Cargar respuesta Hospital",
+            "🛠️ Gestión CTAR",
         ]
+    )
 
-        if columnas_base:
-            mask_no_vacio = df_hospital[columnas_base].astype(str).apply(
-                lambda x: x.str.strip().replace("nan", "").ne("")
-            ).any(axis=1)
-            df_hospital = df_hospital[mask_no_vacio].copy()
-
-        df_hospital["ORDEN_PRIORIDAD"] = df_hospital["PRIORIDAD_HOSPITAL"].apply(orden_prioridad)
-        df_hospital = df_hospital.sort_values(
-            by=["ORDEN_PRIORIDAD", "CTAR"] if "CTAR" in df_hospital.columns else ["ORDEN_PRIORIDAD"],
-            ascending=True,
-        ).drop(columns=["ORDEN_PRIORIDAD"])
-
-        st.success(f"Planilla cargada correctamente: {len(df_hospital)} registros detectados.")
-
-        total = len(df_hospital)
-        rojos = int(df_hospital["PRIORIDAD_HOSPITAL"].astype(str).str.contains("🔴|Roja", regex=True).sum())
-        naranjos = int(df_hospital["PRIORIDAD_HOSPITAL"].astype(str).str.contains("🟠|Naranjo", regex=True).sum())
-        amarillos = int(df_hospital["PRIORIDAD_HOSPITAL"].astype(str).str.contains("🟡|Amarilla", regex=True).sum())
-        verdes = int(df_hospital["PRIORIDAD_HOSPITAL"].astype(str).str.contains("🟢|Verde", regex=True).sum())
-        cerrados = int(df_hospital["CERRADO"].astype(str).str.lower().isin(["sí", "si", "true", "1", "cerrado"]).sum())
-
-        st.markdown("## 2️⃣ Resumen ejecutivo")
-
-        k1, k2, k3, k4, k5, k6 = st.columns(6)
-
-        with k1:
-            st.metric("Total casos", total)
-
-        with k2:
-            st.metric("🔴 Rojos", rojos)
-
-        with k3:
-            st.metric("🟠 Naranjos", naranjos)
-
-        with k4:
-            st.metric("🟡 Amarillos", amarillos)
-
-        with k5:
-            st.metric("🟢 Verdes", verdes)
-
-        with k6:
-            st.metric("✅ Cerrados", cerrados)
-
-        st.markdown("---")
-
-        resumen_prioridad = df_hospital.groupby("PRIORIDAD_HOSPITAL").size().reset_index(name="Cantidad")
-        resumen_prioridad["Orden"] = resumen_prioridad["PRIORIDAD_HOSPITAL"].apply(orden_prioridad)
-        resumen_prioridad = resumen_prioridad.sort_values("Orden")
-
-        fig = px.bar(
-            resumen_prioridad,
-            x="PRIORIDAD_HOSPITAL",
-            y="Cantidad",
-            text="Cantidad",
-            title="Casos por prioridad informada por Hospital",
+    with tab1:
+        st.markdown("## 📤 Planilla para enviar al Hospital")
+        st.info(
+            "Descarga esta planilla y envíala al Hospital. El Hospital solo debe completar PRIORIDAD_HOSPITAL y JUSTIFICACION_PRIORIDAD."
         )
 
-        fig.update_layout(
-            height=420,
-            xaxis_title="Prioridad Hospital",
-            yaxis_title="Cantidad de casos",
-            title_x=0.02,
+        archivo_excel = crear_planilla_hospital(bajas)
+
+        st.download_button(
+            "📥 Descargar planilla de priorización para Hospital",
+            data=archivo_excel,
+            file_name=f"Priorizacion_Hospital_CTAR_{date.today().isoformat()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("## 3️⃣ Gestión CTAR")
-
-        columnas_preferidas = [
-            "CTAR",
-            "OFICIO",
-            "FECHA",
-            "SIC",
-            "Estado SIC",
-            "UNIDAD",
-            "NOMBRE EQUIPO",
-            "MARCA",
-            "MODELO",
-            "N° SERIE",
-            "N° INVENTARIO",
-            "CAUSAL RECLAMADA",
-            "CAUSAL APROBADA",
-            "DETALLE",
-            "VALOR (NETO)",
-            "Observaciones",
-            "PRIORIDAD_HOSPITAL",
-            "JUSTIFICACION_PRIORIDAD",
-            "GESTION_CTAR",
-            "FECHA_ULTIMA_GESTION",
-            "ESTADO_CTAR",
-            "CERRADO",
-            "FECHA_CIERRE",
+        st.markdown("### Vista base enviada")
+        columnas_envio = [
+            c for c in [
+                "ID_Baja",
+                "ID_CTAR",
+                "SIC",
+                "Equipo",
+                "Nro_Inventario",
+                "Servicio",
+                "Motivo_Baja",
+                "Estado_Baja",
+                "Fecha_Baja",
+                "PRIORIDAD_HOSPITAL",
+                "JUSTIFICACION_PRIORIDAD",
+            ] if c in bajas.columns
         ]
+        st.dataframe(bajas[columnas_envio], use_container_width=True, hide_index=True)
 
-        columnas_vista = [c for c in columnas_preferidas if c in df_hospital.columns]
+    with tab2:
+        st.markdown("## 📥 Cargar respuesta del Hospital")
+        st.info(
+            "Cuando el Hospital devuelva el archivo, súbelo aquí. El sistema actualizará PRIORIDAD_HOSPITAL y JUSTIFICACION_PRIORIDAD en FACT_BAJAS."
+        )
 
-        if not columnas_vista:
-            columnas_vista = df_hospital.columns.tolist()
+        archivo = st.file_uploader(
+            "Subir planilla respondida por Hospital",
+            type=["xlsx"],
+            key="upload_respuesta_hospital_bajas",
+        )
 
-        vista = df_hospital[columnas_vista].copy()
+        if archivo is not None:
+            try:
+                try:
+                    respuesta = pd.read_excel(archivo, sheet_name="Priorizacion_Hospital", engine="openpyxl")
+                except Exception:
+                    archivo.seek(0)
+                    respuesta = pd.read_excel(archivo, sheet_name=0, engine="openpyxl")
 
-        # Normalización de tipos para evitar errores en st.data_editor.
-        # Las columnas editables deben venir como texto, no como float.
-        columnas_texto_editor = [
-            "PRIORIDAD_HOSPITAL",
-            "JUSTIFICACION_PRIORIDAD",
-            "GESTION_CTAR",
-            "FECHA_ULTIMA_GESTION",
-            "ESTADO_CTAR",
-            "CERRADO",
-            "FECHA_CIERRE",
-            "OBSERVACION_CIERRE",
-            "RESPONSABLE_CTAR",
-        ]
+                actualizada = actualizar_prioridad(bajas, respuesta)
+                actualizada["ORDEN_PRIORIDAD"] = actualizada["PRIORIDAD_HOSPITAL"].apply(orden_prioridad_baja)
+                actualizada = actualizada.sort_values("ORDEN_PRIORIDAD").drop(columns=["ORDEN_PRIORIDAD"])
 
-        for col in columnas_texto_editor:
-            if col in vista.columns:
-                vista[col] = vista[col].fillna("").astype(str)
+                st.success("Planilla procesada correctamente. Revisa la vista previa antes de guardar.")
 
-        if "PRIORIDAD_HOSPITAL" in vista.columns:
-            vista["PRIORIDAD_HOSPITAL"] = vista["PRIORIDAD_HOSPITAL"].replace(
-                {"": "🟡 Amarilla", "nan": "🟡 Amarilla", "None": "🟡 Amarilla"}
-            )
+                st.dataframe(
+                    actualizada.style.apply(color_fila_prioridad, axis=1),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
-        if "ESTADO_CTAR" in vista.columns:
-            vista["ESTADO_CTAR"] = vista["ESTADO_CTAR"].replace(
-                {"": "Pendiente", "nan": "Pendiente", "None": "Pendiente"}
-            )
+                if can_edit():
+                    if st.button("💾 Guardar priorización en FACT_BAJAS"):
+                        escribir_hoja("FACT_BAJAS", actualizada)
+                        st.success("FACT_BAJAS actualizado correctamente.")
+                        st.rerun()
+                else:
+                    st.warning("Tu rol no tiene permiso para guardar cambios.")
 
-        if "CERRADO" in vista.columns:
-            vista["CERRADO"] = vista["CERRADO"].replace(
-                {"": "No", "nan": "No", "None": "No", "False": "No", "false": "No", "0": "No", "True": "Sí", "true": "Sí", "1": "Sí"}
-            )
+            except Exception as e:
+                st.error("No se pudo procesar la respuesta del Hospital.")
+                st.warning("Verifica que la planilla mantenga ID_Baja, ID_CTAR o SIC.")
+                st.code(str(e))
 
-        disabled_cols = [c for c in vista.columns]
+    with tab3:
+        st.markdown("## 🛠️ Gestión CTAR")
 
-        if role() == "hospital":
-            # Hospital solo propone prioridad y justificación.
-            disabled_cols = [
-                c for c in vista.columns
-                if c not in ["PRIORIDAD_HOSPITAL", "JUSTIFICACION_PRIORIDAD"]
-            ]
-        elif can_edit():
-            # CTAR/Admin/IF trabajan la gestión; se bloquean antecedentes base.
-            editable_ctar = [
+        activos, historico_nuevo = separar_activos_historico(bajas)
+        activos["ORDEN_PRIORIDAD"] = activos["PRIORIDAD_HOSPITAL"].apply(orden_prioridad_baja)
+        activos = activos.sort_values("ORDEN_PRIORIDAD").drop(columns=["ORDEN_PRIORIDAD"])
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1:
+            st.metric("Activos", len(activos))
+        with c2:
+            st.metric("🔴 Rojas", int(activos["PRIORIDAD_HOSPITAL"].str.contains("Roja", na=False).sum()))
+        with c3:
+            st.metric("🟠 Naranjo", int(activos["PRIORIDAD_HOSPITAL"].str.contains("Naranjo", na=False).sum()))
+        with c4:
+            st.metric("🟡 Amarilla", int(activos["PRIORIDAD_HOSPITAL"].str.contains("Amarilla|Amarillo", na=False, regex=True).sum()))
+        with c5:
+            st.metric("🟢 Verde", int(activos["PRIORIDAD_HOSPITAL"].str.contains("Verde", na=False).sum()))
+
+        columnas_gestion = [
+            c for c in [
+                "ID_Baja",
+                "ID_CTAR",
+                "SIC",
+                "Equipo",
+                "Nro_Inventario",
+                "Servicio",
+                "Motivo_Baja",
+                "Estado_Baja",
+                "Fecha_Baja",
                 "PRIORIDAD_HOSPITAL",
                 "JUSTIFICACION_PRIORIDAD",
                 "GESTION_CTAR",
@@ -1030,113 +1164,83 @@ elif page == "Bajas":
                 "ESTADO_CTAR",
                 "CERRADO",
                 "FECHA_CIERRE",
-            ]
-            disabled_cols = [
-                c for c in vista.columns
-                if c not in editable_ctar
-            ]
+                "OBSERVACION_CIERRE",
+            ] if c in activos.columns
+        ]
 
-        st.caption(
-            "Edita la gestión CTAR y marca CERRADO = Sí cuando el caso esté terminado. "
-            "Al descargar, los cerrados pasan a la hoja Histórico_CTAR."
-        )
+        vista = activos[columnas_gestion].copy()
+        vista = normalizar_bajas(vista)
+
+        disabled_cols = [c for c in vista.columns if c not in COLUMNAS_CTAR]
 
         edited = st.data_editor(
             vista,
             use_container_width=True,
             hide_index=True,
-            num_rows="dynamic",
-            disabled=disabled_cols,
+            num_rows="fixed",
+            disabled=disabled_cols if can_edit() else vista.columns.tolist(),
             column_config={
-                "PRIORIDAD_HOSPITAL": st.column_config.SelectboxColumn(
-                    "PRIORIDAD_HOSPITAL",
-                    options=PRIORIDADES,
-                    required=False,
-                ),
-                "ESTADO_CTAR": st.column_config.SelectboxColumn(
-                    "ESTADO_CTAR",
-                    options=ESTADOS_CTAR,
-                    required=False,
-                ),
-                "CERRADO": st.column_config.SelectboxColumn(
-                    "CERRADO",
-                    options=["No", "Sí"],
-                    required=False,
-                ),
-                "GESTION_CTAR": st.column_config.TextColumn(
-                    "GESTION_CTAR",
-                    help="Registrar avance de la mesa CTAR o gestión semanal.",
-                    max_chars=500,
-                ),
-                "JUSTIFICACION_PRIORIDAD": st.column_config.TextColumn(
-                    "JUSTIFICACION_PRIORIDAD",
-                    help="Justificación entregada por Hospital.",
-                    max_chars=500,
-                ),
+                "GESTION_CTAR": st.column_config.TextColumn("GESTION_CTAR"),
+                "FECHA_ULTIMA_GESTION": st.column_config.TextColumn("FECHA_ULTIMA_GESTION"),
+                "ESTADO_CTAR": st.column_config.SelectboxColumn("ESTADO_CTAR", options=ESTADOS_CTAR),
+                "CERRADO": st.column_config.SelectboxColumn("CERRADO", options=["No", "Sí"]),
+                "FECHA_CIERRE": st.column_config.TextColumn("FECHA_CIERRE"),
+                "OBSERVACION_CIERRE": st.column_config.TextColumn("OBSERVACION_CIERRE"),
             },
-            key="editor_bajas_ctar",
+            key="editor_gestion_bajas_ctar",
         )
 
-        for col in columnas_texto_editor:
-            if col in edited.columns:
-                edited[col] = edited[col].fillna("").astype(str)
+        if can_edit():
+            if st.button("💾 Guardar gestión CTAR y mover cerrados a histórico"):
+                edited = normalizar_bajas(edited)
+                original = normalizar_bajas(bajas)
 
-        if "CERRADO" in edited.columns:
-            edited["CERRADO"] = edited["CERRADO"].replace(
-                {"": "No", "nan": "No", "None": "No", "False": "No", "false": "No", "0": "No", "True": "Sí", "true": "Sí", "1": "Sí"}
-            )
+                key = None
+                for candidate in ["ID_Baja", "ID_CTAR", "SIC"]:
+                    if candidate in original.columns and candidate in edited.columns:
+                        key = candidate
+                        break
 
-        edited["ORDEN_PRIORIDAD"] = edited["PRIORIDAD_HOSPITAL"].apply(orden_prioridad)
-        edited = edited.sort_values(
-            by=["CERRADO", "ORDEN_PRIORIDAD"],
-            ascending=[True, True],
-        ).drop(columns=["ORDEN_PRIORIDAD"])
+                if key is None:
+                    st.error("No se pudo guardar porque no existe ID_Baja, ID_CTAR o SIC.")
+                    st.stop()
 
-        mask_cerrado = edited["CERRADO"].astype(str).str.lower().isin(["sí", "si", "true", "1", "cerrado"])
+                actualizado = original.copy()
 
-        casos_activos = edited[~mask_cerrado].copy()
-        historico = edited[mask_cerrado].copy()
+                for _, row in edited.iterrows():
+                    mask = actualizado[key].astype(str) == str(row[key])
+                    for col in COLUMNAS_CTAR:
+                        if col in actualizado.columns and col in edited.columns:
+                            actualizado.loc[mask, col] = row[col]
 
-        if not historico.empty:
-            historico["FECHA_REGISTRO_HISTORICO"] = pd.Timestamp.today().strftime("%Y-%m-%d")
-            historico["USUARIO_REGISTRO"] = st.session_state["user"]["name"]
+                activos_final, historico_final_nuevo = separar_activos_historico(actualizado)
 
-        st.markdown("---")
-        st.markdown("## 4️⃣ Casos activos priorizados")
+                historico_existente = tables.get("HISTORICO_CTAR", pd.DataFrame()).copy()
 
-        st.dataframe(
-            casos_activos.style.apply(color_prioridad_bajas, axis=1),
-            use_container_width=True,
-            hide_index=True,
-        )
+                if not historico_existente.empty:
+                    historico_total = pd.concat(
+                        [historico_existente, historico_final_nuevo],
+                        ignore_index=True,
+                    ).fillna("")
+                    if key in historico_total.columns:
+                        historico_total = historico_total.drop_duplicates(subset=[key], keep="last")
+                else:
+                    historico_total = historico_final_nuevo.copy()
 
-        st.markdown("## 5️⃣ Histórico de casos cerrados")
+                escribir_hoja("FACT_BAJAS", activos_final)
+                escribir_hoja("HISTORICO_CTAR", historico_total)
 
-        if historico.empty:
-            st.info("Aún no hay casos cerrados.")
+                st.success("Gestión guardada. Los casos cerrados fueron enviados a HISTORICO_CTAR.")
+                st.rerun()
         else:
-            st.dataframe(
-                historico.style.apply(color_prioridad_bajas, axis=1),
-                use_container_width=True,
-                hide_index=True,
-            )
+            st.warning("Tu rol solo puede visualizar la gestión CTAR.")
 
-        archivo_salida = generar_excel_salida(casos_activos, historico)
-
-        st.download_button(
-            label="⬇️ Descargar archivo actualizado CTAR",
-            data=archivo_salida,
-            file_name="Bajas_CTAR_Actualizado_con_Historico.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-
-    except Exception as e:
-        st.error("No se pudo procesar la planilla del Hospital.")
-        st.warning(
-            "Verifica que el archivo corresponda a la plantilla simple y que la hoja se llame Priorizacion_Hospital."
-        )
-        st.code(str(e))
+        with st.expander("📚 Ver histórico CTAR actual"):
+            historico_existente = tables.get("HISTORICO_CTAR", pd.DataFrame()).copy()
+            if historico_existente.empty:
+                st.info("Aún no hay histórico CTAR.")
+            else:
+                st.dataframe(historico_existente, use_container_width=True, hide_index=True)
 
 
 elif page == "Reposiciones":
