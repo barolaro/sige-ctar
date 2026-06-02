@@ -945,14 +945,32 @@ elif page == "Bajas":
 
         # Compatibilidad con nombres que han aparecido en versiones anteriores.
         alias = {
+            # Encabezados oficiales / variantes
             "CARTA": "CARTA_SC",
+            "CARTA_SC": "CARTA_SC",
             "FECHA_CA": "FECHA_CARTA",
             "FECHA_CARTA_SC": "FECHA_CARTA",
             "OBSERVACION_AIF": "Observacion_AIF",
             "PRESENTADA_A_CTAR": "Presentada_a_CTAR",
             "PRESENTA_CTAR": "Presentada_a_CTAR",
             "JUSTIFICACION_PRIORIDAD": "JUSTIFICACION_HOSPITAL",
+            "JUSTIFICACIÓN_HOSPITAL": "JUSTIFICACION_HOSPITAL",
             "PRIORIDAD": "PRIORIDAD_HOSPITAL",
+
+            # Compatibilidad con el modelo antiguo de FACT_BAJAS
+            "ID_Baja": "CARTA_SC",
+            "ID_BAJA": "CARTA_SC",
+            "ID_CTAR": "CTAR",
+            "Fecha_Baja": "FECHA_CARTA",
+            "FECHA_BAJA": "FECHA_CARTA",
+            "Equipo": "NOMBRE_EQUIPO",
+            "EQUIPO": "NOMBRE_EQUIPO",
+            "Nro_Inventario": "Inventario",
+            "NRO_INVENTARIO": "Inventario",
+            "Motivo_Baja": "Causal",
+            "MOTIVO_BAJA": "Causal",
+            "Estado_Baja": "Estado",
+            "ESTADO_BAJA": "Estado",
         }
 
         for origen, destino in alias.items():
@@ -1251,7 +1269,7 @@ elif page == "Bajas":
         columnas_envio = COLUMNAS_BASE_BAJAS + COLUMNAS_HOSPITAL_BAJAS
         vista_envio = bajas[[c for c in columnas_envio if c in bajas.columns]].copy()
         st.dataframe(
-            vista_envio.style.apply(color_fila_prioridad, axis=1),
+            vista_envio,
             use_container_width=True,
             hide_index=True,
             column_config=column_config_bajas(),
@@ -1282,7 +1300,7 @@ elif page == "Bajas":
                 st.success("Planilla procesada correctamente. Revisa la vista previa antes de guardar.")
 
                 st.dataframe(
-                    actualizada.style.apply(color_fila_prioridad, axis=1),
+                    actualizada,
                     use_container_width=True,
                     hide_index=True,
                     column_config=column_config_bajas(),
@@ -1455,13 +1473,31 @@ elif page == "Seguimiento CTAR":
         out.columns = [limpiar_nombre_columna(c) for c in out.columns]
 
         alias = {
+            # Encabezados oficiales / variantes
             "CARTA": "CARTA_SC",
+            "CARTA_SC": "CARTA_SC",
             "FECHA_CA": "FECHA_CARTA",
             "FECHA_CARTA_SC": "FECHA_CARTA",
             "OBSERVACION_AIF": "Observacion_AIF",
             "PRESENTADA_A_CTAR": "Presentada_a_CTAR",
             "PRESENTA_CTAR": "Presentada_a_CTAR",
             "JUSTIFICACION_PRIORIDAD": "JUSTIFICACION_HOSPITAL",
+            "JUSTIFICACIÓN_HOSPITAL": "JUSTIFICACION_HOSPITAL",
+
+            # Compatibilidad con el modelo antiguo de FACT_BAJAS
+            "ID_Baja": "CARTA_SC",
+            "ID_BAJA": "CARTA_SC",
+            "ID_CTAR": "CTAR",
+            "Fecha_Baja": "FECHA_CARTA",
+            "FECHA_BAJA": "FECHA_CARTA",
+            "Equipo": "NOMBRE_EQUIPO",
+            "EQUIPO": "NOMBRE_EQUIPO",
+            "Nro_Inventario": "Inventario",
+            "NRO_INVENTARIO": "Inventario",
+            "Motivo_Baja": "Causal",
+            "MOTIVO_BAJA": "Causal",
+            "Estado_Baja": "Estado",
+            "ESTADO_BAJA": "Estado",
         }
 
         for origen, destino in alias.items():
@@ -1584,7 +1620,7 @@ elif page == "Seguimiento CTAR":
         vista_hospital = vista_hospital[mask]
 
     st.dataframe(
-        vista_hospital.style.apply(color_fila_hospital, axis=1),
+        vista_hospital,
         use_container_width=True,
         hide_index=True,
         column_config=column_config_hospital(),
