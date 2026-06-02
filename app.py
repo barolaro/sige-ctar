@@ -604,7 +604,6 @@ with st.sidebar:
 
     if role() == "hospital":
         pages = [
-            "Resumen Ejecutivo",
             "Seguimiento CTAR",
             "Repositorio Documental",
             "Reserva Presupuestaria",
