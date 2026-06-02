@@ -568,6 +568,93 @@ def clean_number(value):
     return pd.to_numeric(value, errors="coerce")
 
 
+
+
+# =========================
+# HOMOLOGACIÓN PLANILLA BAJAS OFICIAL
+# =========================
+
+def homologar_fact_bajas(df_bajas):
+    """Normaliza los encabezados reales de la planilla de bajas oficial al modelo interno SIGE-CTAR."""
+    out = df_bajas.copy()
+
+    out.columns = [
+        str(c).strip()
+        .replace(" ", "_")
+        .replace("Á", "A")
+        .replace("É", "E")
+        .replace("Í", "I")
+        .replace("Ó", "O")
+        .replace("Ú", "U")
+        .replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+        .replace("Ñ", "N")
+        .replace("ñ", "n")
+        for c in out.columns
+    ]
+
+    mapeo = {
+        "CARTA": "ID_Baja",
+        "FECHA_CA": "Fecha_Baja",
+        "SIC": "SIC",
+        "NOMBRE_EQUIPO": "Equipo",
+        "Serie": "Serie",
+        "SERIE": "Serie",
+        "Inventario": "Nro_Inventario",
+        "INVENTARIO": "Nro_Inventario",
+        "Causal": "Motivo_Baja",
+        "CAUSAL": "Motivo_Baja",
+        "Observacion_AIF": "Observacion_AIF",
+        "OBSERVACION_AIF": "Observacion_AIF",
+        "CTAR": "GESTION_CTAR",
+        "Comentario_SC": "Comentario_SC",
+        "COMENTARIO_SC": "Comentario_SC",
+        "Estado": "Estado_Baja",
+        "ESTADO": "Estado_Baja",
+        "Presenta_CTAR": "Presenta_CTAR",
+        "PRESENTA_CTAR": "Presenta_CTAR",
+    }
+
+    for origen, destino in mapeo.items():
+        if origen in out.columns:
+            out.rename(columns={origen: destino}, inplace=True)
+
+    columnas_control = [
+        "PRIORIDAD_HOSPITAL",
+        "JUSTIFICACION_PRIORIDAD",
+        "FECHA_ULTIMA_GESTION",
+        "ESTADO_CTAR",
+        "CERRADO",
+        "FECHA_CIERRE",
+        "OBSERVACION_CIERRE",
+    ]
+
+    for col in columnas_control:
+        if col not in out.columns:
+            out[col] = ""
+
+    if "ESTADO_CTAR" in out.columns:
+        out["ESTADO_CTAR"] = out["ESTADO_CTAR"].replace("", "Pendiente")
+
+    if "CERRADO" in out.columns:
+        out["CERRADO"] = out["CERRADO"].replace(
+            {
+                "": "No",
+                "False": "No",
+                "false": "No",
+                "0": "No",
+                "True": "Sí",
+                "true": "Sí",
+                "1": "Sí",
+            }
+        )
+
+    return out.fillna("")
+
+
 # =========================
 # CARGA
 # =========================
@@ -877,14 +964,16 @@ elif page == "Bajas":
 
         columnas_base = [
             "ID_Baja",
-            "ID_CTAR",
+            "Fecha_Baja",
             "SIC",
             "Equipo",
+            "Serie",
             "Nro_Inventario",
-            "Servicio",
             "Motivo_Baja",
+            "Observacion_AIF",
+            "Comentario_SC",
             "Estado_Baja",
-            "Fecha_Baja",
+            "Presenta_CTAR",
         ]
 
         columnas_existentes = [c for c in columnas_base if c in base.columns]
@@ -1046,6 +1135,7 @@ elif page == "Bajas":
         st.info("No hay registros en FACT_BAJAS.")
         st.stop()
 
+    bajas = homologar_fact_bajas(bajas)
     bajas = normalizar_bajas(bajas)
 
     tab1, tab2, tab3 = st.tabs(
@@ -1075,14 +1165,16 @@ elif page == "Bajas":
         columnas_envio = [
             c for c in [
                 "ID_Baja",
-                "ID_CTAR",
+                "Fecha_Baja",
                 "SIC",
                 "Equipo",
+                "Serie",
                 "Nro_Inventario",
-                "Servicio",
                 "Motivo_Baja",
+                "Observacion_AIF",
+                "Comentario_SC",
                 "Estado_Baja",
-                "Fecha_Baja",
+                "Presenta_CTAR",
                 "PRIORIDAD_HOSPITAL",
                 "JUSTIFICACION_PRIORIDAD",
             ] if c in bajas.columns
@@ -1156,14 +1248,16 @@ elif page == "Bajas":
         columnas_gestion = [
             c for c in [
                 "ID_Baja",
-                "ID_CTAR",
+                "Fecha_Baja",
                 "SIC",
                 "Equipo",
+                "Serie",
                 "Nro_Inventario",
-                "Servicio",
                 "Motivo_Baja",
+                "Observacion_AIF",
+                "Comentario_SC",
                 "Estado_Baja",
-                "Fecha_Baja",
+                "Presenta_CTAR",
                 "PRIORIDAD_HOSPITAL",
                 "JUSTIFICACION_PRIORIDAD",
                 "GESTION_CTAR",
@@ -1328,6 +1422,7 @@ elif page == "Seguimiento CTAR":
         st.info("No hay registros disponibles para seguimiento CTAR.")
         st.stop()
 
+    bajas = homologar_fact_bajas(bajas)
     bajas = normalizar_seguimiento(bajas)
 
     cerrado = bajas["CERRADO"].astype(str).str.lower().isin(
@@ -1371,14 +1466,16 @@ elif page == "Seguimiento CTAR":
 
     columnas_hospital = [
         "ID_Baja",
-        "ID_CTAR",
+        "Fecha_Baja",
         "SIC",
         "Equipo",
+        "Serie",
         "Nro_Inventario",
-        "Servicio",
         "Motivo_Baja",
+        "Observacion_AIF",
+        "Comentario_SC",
         "Estado_Baja",
-        "Fecha_Baja",
+        "Presenta_CTAR",
         "PRIORIDAD_HOSPITAL",
         "JUSTIFICACION_PRIORIDAD",
         "ESTADO_CTAR",
@@ -1396,7 +1493,7 @@ elif page == "Seguimiento CTAR":
         s = search.lower()
         mask = pd.Series(False, index=vista_hospital.index)
 
-        for col in ["ID_Baja", "ID_CTAR", "SIC", "Equipo", "Nro_Inventario", "Servicio", "Motivo_Baja"]:
+        for col in ["ID_Baja", "SIC", "Equipo", "Serie", "Nro_Inventario", "Motivo_Baja", "Comentario_SC", "Estado_Baja"]:
             if col in vista_hospital.columns:
                 mask = mask | vista_hospital[col].astype(str).str.lower().str.contains(s, na=False)
 
