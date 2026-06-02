@@ -2,7 +2,6 @@ import hashlib
 import hmac
 from datetime import date
 from io import BytesIO
-
 import gspread
 import pandas as pd
 import plotly.express as px
